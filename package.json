@@ -1,0 +1,51 @@
+{
+  "name": "@atensec/thoth",
+  "version": "0.1.1",
+  "author": "Aten Engineering <engineering@aten.security>",
+  "description": "AI agent governance SDK by Aten Security",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./anthropic": {
+      "import": "./dist/integrations/anthropic.js",
+      "types": "./dist/integrations/anthropic.d.ts"
+    },
+    "./openai": {
+      "import": "./dist/integrations/openai.js",
+      "types": "./dist/integrations/openai.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.0.0"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3",
+    "vitest": "2.1.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://aten.security/thoth",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atensecurity/thoth-ts.git"
+  },
+  "keywords": [
+    "ai",
+    "governance",
+    "security",
+    "langchain",
+    "agents",
+    "thoth"
+  ]
+}
