@@ -40,19 +40,20 @@ pnpm add @atensec/thoth
 yarn add @atensec/thoth
 ```
 
-**Requirements:** Node.js 22+, TypeScript 5.x (if using types)
+**Requirements:** Node.js 18+, TypeScript 5.x (if using types)
 
 ---
 
 ## Quick Start
 
-**1. Get your API key** from the [Aten Security dashboard](https://app.aten.security) under
+**1. Get your API key** from your Thoth dashboard at `https://<tenant>.<apex-domain>` under
 **Settings → API Keys**.
 
-**2. Set the environment variable:**
+**2. Set environment variables:**
 
 ```bash
 export THOTH_API_KEY="thoth_live_..."
+export THOTH_API_URL="https://enforce.<tenant>.<apex-domain>"
 ```
 
 **3. Instrument your agent:**
@@ -65,9 +66,10 @@ const governed = instrument(agent, {
   agentId: "document-summarizer",
   approvedScope: ["web_search", "read_file", "send_email"],
   tenantId: "your-tenant-id",
+  apiUrl: process.env.THOTH_API_URL!, // required if THOTH_API_URL is not set
   userId: "alice@example.com",
   enforcement: "progressive", // observe | step_up | block | progressive
-  // apiKey read from THOTH_API_KEY env var automatically
+  // apiKey reads from THOTH_API_KEY env var automatically
 });
 
 // Every tool call is now governed — no other changes required
@@ -86,7 +88,7 @@ Agent calls tool
       ▼
 Thoth intercepts (instrument)
       │
-      ├── Emits TOOL_CALL_PRE event → Aten API (async, non-blocking)
+      ├── Emits TOOL_CALL_PRE event → tenant API (async, non-blocking)
       │
       ├── Calls enforcer /v1/enforce
       │        │
@@ -96,7 +98,7 @@ Thoth intercepts (instrument)
       │
       ├── Tool executes (if allowed)
       │
-      └── Emits TOOL_CALL_POST event → Aten API (async, non-blocking)
+      └── Emits TOOL_CALL_POST event → tenant API (async, non-blocking)
 ```
 
 Events are emitted to the Aten ingest API asynchronously and never block tool execution. If the
@@ -185,6 +187,7 @@ const wrappedFns = wrapAnthropicTools(
     agentId: "claude-research-agent",
     approvedScope: ["search_docs"],
     tenantId: "acme-corp",
+    apiUrl: "https://enforce.acme-corp.aten.security",
     userId: "alice@acme.com",
     enforcement: "step_up",
   },
@@ -236,6 +239,7 @@ const wrappedFns = wrapOpenAITools(
     agentId: "openai-agent",
     approvedScope: ["search_docs"],
     tenantId: "acme-corp",
+    apiUrl: "https://enforce.acme-corp.aten.security",
     userId: "charlie@acme.com",
     enforcement: "block",
   },
@@ -284,11 +288,14 @@ All options are passed as the second argument to `instrument()`, `wrapAnthropicT
 | `agentId`              | `string`                    | Yes      | —                | Stable identifier for this agent. Used in policy rules and dashboard grouping. |
 | `tenantId`             | `string`                    | Yes      | —                | Your Maat tenant ID.                                                           |
 | `approvedScope`        | `string[]`                  | Yes      | —                | List of tool names this agent is authorized to call.                           |
+| `apiUrl`               | `string`                    | Yes\*    | `$THOTH_API_URL` | Tenant API base URL used for both `/v1/enforce` and `/v1/events/batch`.        |
 | `userId`               | `string`                    | No       | `"system"`       | Identity of the user on whose behalf the agent acts.                           |
 | `enforcement`          | `EnforcementMode \| string` | No       | `"progressive"`  | Enforcement mode: `observe`, `step_up`, `block`, or `progressive`.             |
-| `apiKey`               | `string`                    | No       | `$THOTH_API_KEY` | API key from the Aten dashboard. Events sent over HTTPS to Aten's managed API. |
+| `apiKey`               | `string`                    | No       | `$THOTH_API_KEY` | API key from the Aten dashboard.                                               |
 | `stepUpTimeoutMinutes` | `number`                    | No       | `15`             | How long to wait for human approval before timing out a step-up hold.          |
 | `stepUpPollIntervalMs` | `number`                    | No       | `5000`           | How often to poll the enforcer for step-up approval status (milliseconds).     |
+
+\* `apiUrl` may be omitted only when `THOTH_API_URL` is set.
 
 ### TypeScript types
 
@@ -349,20 +356,10 @@ up automatically.
 
 ## Environment Variables
 
-| Variable           | Description                                                                            | Example                 |
-| ------------------ | -------------------------------------------------------------------------------------- | ----------------------- |
-| `THOTH_API_KEY`    | API key from the Aten dashboard. Used as default if `apiKey` config option is not set. | `thoth_live_abc123...`  |
-| `AWS_ENDPOINT_URL` | Override the AWS endpoint for local development with LocalStack or similar.            | `http://localhost:4566` |
-
-### LocalStack / local development
-
-Set `AWS_ENDPOINT_URL=http://localhost:4566` to route calls to a local LocalStack instance:
-
-```bash
-AWS_ENDPOINT_URL=http://localhost:4566 \
-THOTH_API_KEY=thoth_dev_localkey \
-node your-agent.js
-```
+| Variable        | Description                                                                                      | Example                                  |
+| --------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| `THOTH_API_KEY` | API key from the Aten dashboard. Used as default if `apiKey` config option is not set.           | `thoth_live_abc123...`                   |
+| `THOTH_API_URL` | Tenant API base URL used for both enforcement and event ingestion when `apiUrl` is not provided. | `https://enforce.<tenant>.<apex-domain>` |
 
 ---
 
@@ -394,8 +391,8 @@ never interrupt production workloads.
 
 ## Dashboard
 
-View sessions, violations, step-up requests, and policy decisions in the
-[Maat Governance Dashboard](https://app.aten.security).
+View sessions, violations, step-up requests, and policy decisions in your Thoth dashboard at
+`https://<tenant>.<apex-domain>`.
 
 The dashboard shows:
 

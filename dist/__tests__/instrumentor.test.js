@@ -32,12 +32,14 @@ class FakeStreamingAgent {
     }
 }
 describe("instrument()", () => {
+    const apiUrl = "https://enforce.trantor.aten.security";
     it("returns the same agent object", () => {
         const agent = new FakeAgent();
         const result = instrument(agent, {
             agentId: "test",
             approvedScope: ["read:data"],
             tenantId: "trantor",
+            apiUrl,
         });
         expect(result).toBe(agent);
     });
@@ -51,6 +53,7 @@ describe("instrument()", () => {
             agentId: "test",
             approvedScope: ["read:data"],
             tenantId: "trantor",
+            apiUrl,
         });
         const result = await agent.tools[0].run("arg");
         expect(result).toBe("result");
@@ -67,6 +70,7 @@ describe("instrument()", () => {
             approvedScope: [],
             tenantId: "trantor",
             enforcement: "block",
+            apiUrl,
         });
         await expect(agent.tools[0].run()).rejects.toThrow(ThothPolicyViolation);
     });
@@ -80,6 +84,7 @@ describe("instrument()", () => {
             agentId: "test",
             approvedScope: ["stream:data"],
             tenantId: "trantor",
+            apiUrl,
         });
         const chunks = [];
         for await (const chunk of agent.tools[0].run("arg")) {
@@ -116,6 +121,7 @@ describe("instrument()", () => {
             agentId: "test",
             approvedScope: ["stream:data"],
             tenantId: "trantor",
+            apiUrl,
         });
         // The wrapped generator should call enforce (fetch) before running the original generator body
         const gen = trackingAgent.tools[0].run("arg");
@@ -136,6 +142,7 @@ describe("instrument()", () => {
             agentId: "test",
             approvedScope: ["stream:data"],
             tenantId: "trantor",
+            apiUrl,
         });
         const chunks = [];
         for await (const chunk of agent.tools[0].run()) {
@@ -150,6 +157,7 @@ describe("instrument()", () => {
             agentId: "test",
             approvedScope: ["read:data"],
             tenantId: "trantor",
+            apiUrl,
         });
         // The original FakeTool.run method is named "run" (bound function name: "bound run")
         // After wrapping, the name should be preserved from the original
@@ -161,9 +169,56 @@ describe("instrument()", () => {
             agentId: "test",
             approvedScope: ["stream:data"],
             tenantId: "trantor",
+            apiUrl,
         });
         // The original FakeStreamingTool.run is an async generator, bound name is "bound run"
         expect(agent.tools[0].run.name).toBe("bound run");
+    });
+    it("uses custom apiUrl for enforcement checks", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ decision: "ALLOW" }),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiKey: "thoth_live_test",
+            apiUrl: "https://enforce.trantor.aten.security",
+        });
+        await agent.tools[0].run("arg");
+        const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+        expect(urls).toContain("https://enforce.trantor.aten.security/v1/enforce");
+    });
+    it("uses custom apiUrl for enforcement when apiKey is omitted", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ decision: "ALLOW" }),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl: "https://enforce.trantor.aten.security",
+        });
+        await agent.tools[0].run("arg");
+        const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+        expect(urls).toContain("https://enforce.trantor.aten.security/v1/enforce");
+    });
+    it("throws when apiUrl is missing and THOTH_API_URL is unset", () => {
+        const agent = new FakeAgent();
+        if (typeof process !== "undefined") {
+            delete process.env.THOTH_API_URL;
+        }
+        expect(() => instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+        })).toThrow("Thoth API URL is required");
     });
 });
 //# sourceMappingURL=instrumentor.test.js.map

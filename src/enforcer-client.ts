@@ -1,15 +1,30 @@
 import { EnforcementDecision, DecisionType, ThothConfig } from "./models";
 
-const HOSTED_API_URL = "https://api.aten.security";
 const FALLBACK: EnforcementDecision = { decision: DecisionType.ALLOW };
 
+type EnforceConfig = Required<
+  Pick<
+    ThothConfig,
+    | "agentId"
+    | "approvedScope"
+    | "tenantId"
+    | "userId"
+    | "enforcement"
+    | "apiKey"
+    | "apiUrl"
+    | "stepUpTimeoutMinutes"
+    | "stepUpPollIntervalMs"
+  >
+> &
+  Pick<ThothConfig, "sessionIntent">;
+
 export async function checkEnforce(
-  config: Required<ThothConfig>,
+  config: EnforceConfig,
   toolName: string,
   sessionId: string,
   sessionToolCalls: string[],
 ): Promise<EnforcementDecision> {
-  const enforcerUrl = config.apiKey ? HOSTED_API_URL : "http://enforcer:8080";
+  const managedApiUrl = config.apiUrl.replace(/\/$/, "");
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -17,7 +32,7 @@ export async function checkEnforce(
     headers["Authorization"] = `Bearer ${config.apiKey}`;
   }
   try {
-    const resp = await fetch(`${enforcerUrl}/v1/enforce`, {
+    const resp = await fetch(`${managedApiUrl}/v1/enforce`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -28,6 +43,9 @@ export async function checkEnforce(
         session_tool_calls: sessionToolCalls,
         approved_scope: config.approvedScope,
         enforcement_mode: config.enforcement,
+        ...(config.sessionIntent !== undefined && {
+          session_intent: config.sessionIntent,
+        }),
       }),
       signal: AbortSignal.timeout(5000),
     });

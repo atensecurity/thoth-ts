@@ -10,17 +10,29 @@ import {
 import { checkEnforce } from "./enforcer-client";
 import { emitBehavioralEvent } from "./emitter";
 
-const HOSTED_API_URL = "https://api.aten.security";
-
 const DEFAULTS = {
   enforcement: EnforcementMode.PROGRESSIVE,
   apiKey:
     (typeof process !== "undefined" && process.env?.THOTH_API_KEY) || undefined,
-  apiUrl: HOSTED_API_URL,
   userId: "system",
   stepUpTimeoutMinutes: 15,
   stepUpPollIntervalMs: 5000,
 };
+
+function resolveApiUrl(config: ThothConfig): string {
+  const fromConfig = config.apiUrl?.trim() ?? "";
+  const fromEnv = (
+    (typeof process !== "undefined" && process.env?.THOTH_API_URL) ||
+    ""
+  ).trim();
+  const resolved = fromConfig || fromEnv;
+  if (!resolved) {
+    throw new Error(
+      "Thoth API URL is required (set config.apiUrl or THOTH_API_URL)",
+    );
+  }
+  return resolved.replace(/\/$/, "");
+}
 
 // Helper to detect async generator functions
 function isAsyncGeneratorFunction(
@@ -58,9 +70,11 @@ function wrapAsAsyncGenerator(
 }
 
 export function instrument<T extends object>(agent: T, config: ThothConfig): T {
+  const apiUrl = resolveApiUrl(config);
   const cfg = { ...DEFAULTS, ...config } as Required<ThothConfig> & {
     apiUrl: string;
   };
+  cfg.apiUrl = apiUrl;
   const sessionId = crypto.randomUUID();
   const toolCalls: string[] = [];
 
@@ -106,11 +120,7 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
         enforcementMode: cfg.enforcement,
         sessionToolCalls: toolCalls,
       };
-      await emitBehavioralEvent(
-        event,
-        cfg.apiUrl ?? HOSTED_API_URL,
-        cfg.apiKey ?? "",
-      );
+      await emitBehavioralEvent(event, cfg.apiUrl, cfg.apiKey ?? "");
     };
 
     let wrapped: (...args: unknown[]) => unknown;

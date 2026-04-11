@@ -41,8 +41,21 @@ export interface ThothConfig {
     userId?: string;
     enforcement?: EnforcementMode;
     apiKey?: string;
+    /**
+     * Tenant API base URL used for both behavioral event ingestion and policy checks.
+     * Required directly or through THOTH_API_URL. Example:
+     * https://enforce.<tenant>.<apex-domain>
+     */
+    apiUrl?: string;
     stepUpTimeoutMinutes?: number;
     stepUpPollIntervalMs?: number;
+    /**
+     * Declares the purpose of this session for HIPAA minimum-necessary enforcement.
+     * When the active compliance pack defines session_scopes, tools outside the
+     * declared intent scope are step-up-challenged even if they appear in approvedScope.
+     * Example: "phi_eligibility_check"
+     */
+    sessionIntent?: string;
 }
 export interface EnforcementDecision {
     decision: DecisionType;
