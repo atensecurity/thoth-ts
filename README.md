@@ -1,6 +1,6 @@
 # @atensec/thoth
 
-AI agent governance SDK for JavaScript/TypeScript by [Aten Security](https://aten.security).
+AI agent governance SDK for JavaScript/TypeScript by [Aten Security](https://atensecurity.com).
 
 Thoth instruments your AI agents for governance, policy enforcement, and behavioral monitoring.
 Every tool call is evaluated against your organization's security policies — blocking, stepping up
@@ -187,7 +187,7 @@ const wrappedFns = wrapAnthropicTools(
     agentId: "claude-research-agent",
     approvedScope: ["search_docs"],
     tenantId: "acme-corp",
-    apiUrl: "https://enforce.acme-corp.aten.security",
+    apiUrl: "https://enforce.acme-corp.atensecurity.com",
     userId: "alice@acme.com",
     enforcement: "step_up",
   },
@@ -239,7 +239,7 @@ const wrappedFns = wrapOpenAITools(
     agentId: "openai-agent",
     approvedScope: ["search_docs"],
     tenantId: "acme-corp",
-    apiUrl: "https://enforce.acme-corp.aten.security",
+    apiUrl: "https://enforce.acme-corp.atensecurity.com",
     userId: "charlie@acme.com",
     enforcement: "block",
   },

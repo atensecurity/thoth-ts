@@ -1,7 +1,7 @@
 {
   "name": "@atensec/thoth",
-  "version": "0.1.2",
-  "author": "Aten Engineering <engineering@aten.security>",
+  "version": "0.1.5",
+  "author": "Aten Engineering <engineering@atensecurity.com>",
   "description": "AI agent governance SDK by Aten Security",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -35,7 +35,7 @@
     "access": "public"
   },
   "license": "Apache-2.0",
-  "homepage": "https://aten.security/thoth",
+  "homepage": "https://atensecurity.com/thoth",
   "repository": {
     "type": "git",
     "url": "https://github.com/atensecurity/thoth-ts.git"

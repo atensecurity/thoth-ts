@@ -1,1 +1,1 @@
-{"version":3,"file":"instrumentor.d.ts","sourceRoot":"","sources":["../src/instrumentor.ts"],"names":[],"mappings":"AAAA,OAAO,EACL,WAAW,EAOZ,MAAM,UAAU,CAAC;AA+DlB,wBAAgB,UAAU,CAAC,CAAC,SAAS,MAAM,EAAE,KAAK,EAAE,CAAC,EAAE,MAAM,EAAE,WAAW,GAAG,CAAC,CAwF7E"}
+{"version":3,"file":"instrumentor.d.ts","sourceRoot":"","sources":["../src/instrumentor.ts"],"names":[],"mappings":"AAAA,OAAO,EACL,WAAW,EAOZ,MAAM,UAAU,CAAC;AAgHlB,wBAAgB,UAAU,CAAC,CAAC,SAAS,MAAM,EAAE,KAAK,EAAE,CAAC,EAAE,MAAM,EAAE,WAAW,GAAG,CAAC,CA2F7E"}

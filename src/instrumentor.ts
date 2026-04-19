@@ -44,18 +44,67 @@ function isAsyncGeneratorFunction(
   );
 }
 
+function toSerializable(
+  value: unknown,
+  seen: WeakSet<object>,
+  depth = 0,
+): unknown {
+  if (depth > 5) return "[truncated]";
+  if (value == null) return value;
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "symbol") return value.toString();
+  if (typeof value === "function") return "[function]";
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) {
+    return value.map((item) => toSerializable(item, seen, depth + 1));
+  }
+  if (typeof value === "object") {
+    if (seen.has(value)) return "[circular]";
+    seen.add(value);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = toSerializable(v, seen, depth + 1);
+    }
+    return out;
+  }
+  return String(value);
+}
+
+function toolArgsFromCall(
+  args: unknown[],
+): Record<string, unknown> | undefined {
+  if (args.length === 0) return undefined;
+  const seen = new WeakSet<object>();
+  if (
+    args.length === 1 &&
+    args[0] !== null &&
+    typeof args[0] === "object" &&
+    !Array.isArray(args[0])
+  ) {
+    return toSerializable(args[0], seen) as Record<string, unknown>;
+  }
+  return { args: toSerializable(args, seen) };
+}
+
 function wrapAsAsyncGenerator(
   toolName: string,
   fn: (...args: unknown[]) => AsyncGenerator,
   _config: ThothConfig,
   _sessionId: string,
   _toolCalls: string[],
-  enforce: () => Promise<void>,
+  enforce: (args: unknown[]) => Promise<void>,
   emit: (eventType: string, content: string) => Promise<void>,
 ): (...args: unknown[]) => AsyncGenerator {
   return async function* (...args: unknown[]) {
     await emit("TOOL_CALL_PRE", JSON.stringify(args));
-    await enforce();
+    await enforce(args);
     const gen = fn(...args);
     const results: unknown[] = [];
     try {
@@ -76,6 +125,7 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
   };
   cfg.apiUrl = apiUrl;
   const sessionId = crypto.randomUUID();
+  const enforcementTraceId = cfg.enforcementTraceId ?? sessionId;
   const toolCalls: string[] = [];
 
   const tools = (agent as Record<string, unknown>).tools;
@@ -86,13 +136,15 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
     const originalRun = tool.run?.bind(tool);
     if (!originalRun) continue;
 
-    const enforce = async () => {
+    const enforce = async (args: unknown[]) => {
       if (cfg.enforcement !== EnforcementMode.OBSERVE) {
         const decision = await checkEnforce(
           cfg,
           toolName,
           sessionId,
           toolCalls,
+          toolArgsFromCall(args),
+          enforcementTraceId,
         );
         if (decision.decision === DecisionType.BLOCK) {
           throw new ThothPolicyViolation(
@@ -138,7 +190,7 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
     } else {
       const wrappedAsync = async (...args: unknown[]) => {
         await emit("TOOL_CALL_PRE", JSON.stringify(args));
-        await enforce();
+        await enforce(args);
         const result = await originalRun(...args);
         toolCalls.push(toolName);
         await emit("TOOL_CALL_POST", JSON.stringify(result));

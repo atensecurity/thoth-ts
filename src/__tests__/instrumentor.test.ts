@@ -29,7 +29,7 @@ class FakeStreamingAgent {
 }
 
 describe("instrument()", () => {
-  const apiUrl = "https://enforce.trantor.aten.security";
+  const apiUrl = "https://enforce.trantor.atensecurity.com";
 
   it("returns the same agent object", () => {
     const agent = new FakeAgent();
@@ -211,13 +211,13 @@ describe("instrument()", () => {
       approvedScope: ["read:data"],
       tenantId: "trantor",
       apiKey: "thoth_live_test",
-      apiUrl: "https://enforce.trantor.aten.security",
+      apiUrl: "https://enforce.trantor.atensecurity.com",
     });
 
     await agent.tools[0].run("arg");
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls).toContain("https://enforce.trantor.aten.security/v1/enforce");
+    expect(urls).toContain("https://enforce.trantor.atensecurity.com/v1/enforce");
   });
 
   it("uses custom apiUrl for enforcement when apiKey is omitted", async () => {
@@ -232,13 +232,61 @@ describe("instrument()", () => {
       agentId: "test",
       approvedScope: ["read:data"],
       tenantId: "trantor",
-      apiUrl: "https://enforce.trantor.aten.security",
+      apiUrl: "https://enforce.trantor.atensecurity.com",
     });
 
     await agent.tools[0].run("arg");
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls).toContain("https://enforce.trantor.aten.security/v1/enforce");
+    expect(urls).toContain("https://enforce.trantor.atensecurity.com/v1/enforce");
+  });
+
+  it("propagates tool args, policy context, and trace id to enforce", async () => {
+    const agent = new FakeAgent();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/enforce")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ decision: "ALLOW" }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl: "https://enforce.trantor.atensecurity.com",
+      policyContext: {
+        vertical: "healthcare",
+        role: "billing_agent",
+      },
+      enforcementTraceId: "trace-test-123",
+    });
+
+    await agent.tools[0].run({ mrn: "123456", request: "eligibility_check" });
+
+    const enforceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/enforce"),
+    );
+    expect(enforceCall).toBeTruthy();
+    const init = (enforceCall?.[1] ?? {}) as RequestInit;
+    const body = JSON.parse(String(init.body));
+
+    expect(body.tool_args).toEqual({
+      mrn: "123456",
+      request: "eligibility_check",
+    });
+    expect(body.metadata.policy_context).toEqual({
+      vertical: "healthcare",
+      role: "billing_agent",
+    });
+    expect(body.enforcement_trace_id).toBe("trace-test-123");
   });
 
   it("throws when apiUrl is missing and THOTH_API_URL is unset", () => {

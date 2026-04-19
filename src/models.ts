@@ -61,6 +61,16 @@ export interface ThothConfig {
    * Example: "phi_eligibility_check"
    */
   sessionIntent?: string;
+  /**
+   * Optional tenant-defined policy context sent to the enforcer as
+   * metadata.policy_context for tenant/role-aware pre-filters.
+   */
+  policyContext?: Record<string, unknown>;
+  /**
+   * Optional correlation identifier propagated through enforcer -> fastml -> deepllm.
+   * Defaults to the instrumented session UUID when omitted.
+   */
+  enforcementTraceId?: string;
 }
 
 export interface EnforcementDecision {
