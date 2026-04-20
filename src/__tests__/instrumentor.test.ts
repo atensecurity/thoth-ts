@@ -81,6 +81,107 @@ describe("instrument()", () => {
     await expect(agent.tools[0].run()).rejects.toThrow(ThothPolicyViolation);
   });
 
+  it("fails closed when enforcer is unreachable", async () => {
+    const agent = new FakeAgent();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("network unreachable")),
+    );
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl,
+    });
+    await expect(agent.tools[0].run("arg")).rejects.toThrow(
+      /enforcer unavailable/i,
+    );
+  });
+
+  it("waits for step-up hold approval before executing tool", async () => {
+    const agent = new FakeAgent();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/enforce/hold/")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ resolved: true, resolution: "ALLOW" }),
+        });
+      }
+      if (url.includes("/v1/enforce")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              decision: "STEP_UP",
+              hold_token: "tok_step_up_1",
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl,
+      stepUpTimeoutMinutes: 1,
+      stepUpPollIntervalMs: 1,
+    });
+
+    const result = await agent.tools[0].run("arg");
+    expect(result).toBe("result");
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/v1/enforce/hold/tok_step_up_1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks tool execution when step-up approval times out", async () => {
+    const agent = new FakeAgent();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/enforce/hold/")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ resolved: false }),
+        });
+      }
+      if (url.includes("/v1/enforce")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              decision: "STEP_UP",
+              hold_token: "tok_step_up_timeout",
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl,
+      stepUpTimeoutMinutes: 0,
+      stepUpPollIntervalMs: 1,
+    });
+
+    await expect(agent.tools[0].run("arg")).rejects.toThrow(
+      /step-up auth timeout/i,
+    );
+  });
+
   it("async generator tool yields all values", async () => {
     const agent = new FakeStreamingAgent();
     vi.stubGlobal(
@@ -102,6 +203,41 @@ describe("instrument()", () => {
       chunks.push(chunk);
     }
     expect(chunks).toEqual(["chunk1", "chunk2", "chunk3"]);
+  });
+
+  it("includes current tool in session_tool_calls for async generator enforce", async () => {
+    const agent = new FakeStreamingAgent();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/enforce")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ decision: "ALLOW" }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["stream:data"],
+      tenantId: "trantor",
+      apiUrl,
+    });
+
+    for await (const _chunk of (agent.tools[0] as any).run("arg")) {
+      // exhaust
+    }
+
+    const enforceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/enforce"),
+    );
+    const init = (enforceCall?.[1] ?? {}) as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.session_tool_calls).toEqual(["stream:data"]);
   });
 
   it("TOOL_CALL_PRE is emitted before first yield", async () => {
@@ -241,6 +377,40 @@ describe("instrument()", () => {
     expect(urls).toContain("https://enforce.trantor.atensecurity.com/v1/enforce");
   });
 
+  it("propagates custom environment to enforcer payload", async () => {
+    const agent = new FakeAgent();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/enforce")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ decision: "ALLOW" }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl: "https://enforce.trantor.atensecurity.com",
+      environment: "dev",
+    });
+
+    await agent.tools[0].run("arg");
+
+    const enforceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/enforce"),
+    );
+    const init = (enforceCall?.[1] ?? {}) as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.environment).toBe("dev");
+  });
+
   it("propagates tool args, policy context, and trace id to enforce", async () => {
     const agent = new FakeAgent();
     const fetchMock = vi.fn().mockImplementation((url: string) => {
@@ -282,6 +452,8 @@ describe("instrument()", () => {
       mrn: "123456",
       request: "eligibility_check",
     });
+    expect(body.session_tool_calls).toEqual(["read:data"]);
+    expect(body.environment).toBe("prod");
     expect(body.metadata.policy_context).toEqual({
       vertical: "healthcare",
       role: "billing_agent",

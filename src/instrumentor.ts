@@ -7,7 +7,7 @@ import {
   SourceType,
   EventType,
 } from "./models";
-import { checkEnforce } from "./enforcer-client";
+import { awaitStepUpDecision, checkEnforce } from "./enforcer-client";
 import { emitBehavioralEvent } from "./emitter";
 
 const DEFAULTS = {
@@ -17,6 +17,7 @@ const DEFAULTS = {
   userId: "system",
   stepUpTimeoutMinutes: 15,
   stepUpPollIntervalMs: 5000,
+  environment: "prod",
 };
 
 function resolveApiUrl(config: ThothConfig): string {
@@ -93,18 +94,29 @@ function toolArgsFromCall(
   return { args: toSerializable(args, seen) };
 }
 
+function pendingSessionToolCalls(
+  toolCalls: string[],
+  toolName: string,
+): string[] {
+  if (toolCalls.length === 0 || toolCalls[toolCalls.length - 1] !== toolName) {
+    return [...toolCalls, toolName];
+  }
+  return [...toolCalls];
+}
+
 function wrapAsAsyncGenerator(
   toolName: string,
   fn: (...args: unknown[]) => AsyncGenerator,
   _config: ThothConfig,
   _sessionId: string,
-  _toolCalls: string[],
+  toolCalls: string[],
   enforce: (args: unknown[]) => Promise<void>,
   emit: (eventType: string, content: string) => Promise<void>,
 ): (...args: unknown[]) => AsyncGenerator {
   return async function* (...args: unknown[]) {
     await emit("TOOL_CALL_PRE", JSON.stringify(args));
     await enforce(args);
+    toolCalls.push(toolName);
     const gen = fn(...args);
     const results: unknown[] = [];
     try {
@@ -142,10 +154,36 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
           cfg,
           toolName,
           sessionId,
-          toolCalls,
+          pendingSessionToolCalls(toolCalls, toolName),
           toolArgsFromCall(args),
           enforcementTraceId,
         );
+        if (decision.decision === DecisionType.STEP_UP) {
+          const holdToken = decision.holdToken;
+          if (!holdToken) {
+            throw new ThothPolicyViolation(
+              toolName,
+              decision.reason ?? "step-up required but hold token missing",
+              decision.violationId,
+            );
+          }
+          const resolved = await awaitStepUpDecision(cfg, holdToken);
+          if (resolved.decision === DecisionType.BLOCK) {
+            throw new ThothPolicyViolation(
+              toolName,
+              resolved.reason ?? "step-up blocked",
+              resolved.violationId,
+            );
+          }
+          if (resolved.decision === DecisionType.STEP_UP) {
+            throw new ThothPolicyViolation(
+              toolName,
+              "step-up unresolved",
+              decision.violationId,
+            );
+          }
+          return;
+        }
         if (decision.decision === DecisionType.BLOCK) {
           throw new ThothPolicyViolation(
             toolName,

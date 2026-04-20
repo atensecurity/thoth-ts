@@ -1,6 +1,6 @@
 {
   "name": "@atensec/thoth",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "author": "Aten Engineering <engineering@atensecurity.com>",
   "description": "AI agent governance SDK by Aten Security",
   "main": "./dist/index.js",

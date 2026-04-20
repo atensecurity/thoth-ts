@@ -71,6 +71,11 @@ export interface ThothConfig {
    * Defaults to the instrumented session UUID when omitted.
    */
   enforcementTraceId?: string;
+  /**
+   * Environment tag used for env-scoped policy resolution ("dev", "prod", ...).
+   * Defaults to "prod".
+   */
+  environment?: string;
 }
 
 export interface EnforcementDecision {
