@@ -7,6 +7,19 @@ const STEP_UP_TIMEOUT = {
     decision: DecisionType.BLOCK,
     reason: "step-up auth timeout — no approver response",
 };
+function defaultIdentityBinding(config) {
+    if (config.identityBinding && Object.keys(config.identityBinding).length > 0) {
+        return { ...config.identityBinding };
+    }
+    const binding = {
+        agent_id: config.agentId,
+        tenant_id: config.tenantId,
+    };
+    if (config.userId) {
+        binding.user_id = config.userId;
+    }
+    return binding;
+}
 export async function checkEnforce(config, toolName, sessionId, sessionToolCalls, toolArgs, enforcementTraceId) {
     const managedApiUrl = config.apiUrl.replace(/\/$/, "");
     const headers = {
@@ -29,6 +42,7 @@ export async function checkEnforce(config, toolName, sessionId, sessionToolCalls
                 approved_scope: config.approvedScope,
                 enforcement_mode: config.enforcement,
                 environment: config.environment,
+                identity_binding: defaultIdentityBinding(config),
                 ...(toolArgs !== undefined && { tool_args: toolArgs }),
                 ...(config.policyContext !== undefined && {
                     metadata: { policy_context: config.policyContext },
@@ -51,12 +65,22 @@ export async function checkEnforce(config, toolName, sessionId, sessionToolCalls
     }
 }
 function parseDecision(value) {
-    if (value === DecisionType.ALLOW)
+    if (typeof value !== "string")
+        return null;
+    const key = value.trim().toUpperCase();
+    if (key === DecisionType.ALLOW)
         return DecisionType.ALLOW;
-    if (value === DecisionType.BLOCK)
+    if (key === DecisionType.BLOCK || key === "DENY")
         return DecisionType.BLOCK;
-    if (value === DecisionType.STEP_UP)
+    if (key === DecisionType.STEP_UP || key === "CHALLENGE" || key === "ESCALATE" || key === "REVIEW") {
         return DecisionType.STEP_UP;
+    }
+    if (key === DecisionType.MODIFY || key === "MODIFIED" || key === "TRANSFORM") {
+        return DecisionType.MODIFY;
+    }
+    if (key === DecisionType.DEFER || key === "DEFERRED" || key === "HOLD") {
+        return DecisionType.DEFER;
+    }
     return null;
 }
 function readRecord(value) {
@@ -67,16 +91,35 @@ function readRecord(value) {
 function readText(value) {
     return typeof value === "string" ? value : undefined;
 }
+function readNumber(value) {
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
 function toEnforcementDecision(payload) {
     const record = readRecord(payload);
-    const decision = parseDecision(record.decision);
+    const decision = parseDecision(record.authorization_decision ?? record.authorizationDecision ?? record.decision);
     if (!decision)
         return FALLBACK;
     return {
         decision,
-        reason: readText(record.reason),
+        decisionReasonCode: readText(record.decision_reason_code ?? record.decisionReasonCode),
+        actionClassification: readText(record.action_classification ?? record.actionClassification),
+        reason: readText(record.reason) ??
+            readText(record.defer_reason ?? record.deferReason) ??
+            readText(record.modification_reason ?? record.modificationReason),
         violationId: readText(record.violation_id ?? record.violationId),
         holdToken: readText(record.hold_token ?? record.holdToken),
+        receipt: record.receipt && typeof record.receipt === "object"
+            ? record.receipt
+            : undefined,
+        modifiedToolArgs: record.modified_tool_args && typeof record.modified_tool_args === "object"
+            ? record.modified_tool_args
+            : record.modifiedToolArgs && typeof record.modifiedToolArgs === "object"
+                ? record.modifiedToolArgs
+                : undefined,
+        modificationReason: readText(record.modification_reason ?? record.modificationReason),
+        deferReason: readText(record.defer_reason ?? record.deferReason),
+        deferTimeoutSeconds: readNumber(record.defer_timeout_seconds ?? record.deferTimeoutSeconds),
+        stepUpTimeoutSeconds: readNumber(record.step_up_timeout_seconds ?? record.stepUpTimeoutSeconds),
     };
 }
 async function sleep(ms) {

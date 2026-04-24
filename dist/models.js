@@ -21,6 +21,8 @@ export var DecisionType;
     DecisionType["ALLOW"] = "ALLOW";
     DecisionType["BLOCK"] = "BLOCK";
     DecisionType["STEP_UP"] = "STEP_UP";
+    DecisionType["MODIFY"] = "MODIFY";
+    DecisionType["DEFER"] = "DEFER";
 })(DecisionType || (DecisionType = {}));
 export class ThothPolicyViolation extends Error {
     constructor(toolName, reason, violationId) {

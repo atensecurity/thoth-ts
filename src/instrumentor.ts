@@ -104,20 +104,86 @@ function pendingSessionToolCalls(
   return [...toolCalls];
 }
 
+function buildDeferredReason(
+  decision: {
+    reason?: string;
+    deferReason?: string;
+    deferTimeoutSeconds?: number;
+  },
+): string {
+  const base =
+    decision.deferReason ??
+    decision.reason ??
+    "deferred pending additional context";
+  if (
+    typeof decision.deferTimeoutSeconds === "number" &&
+    Number.isFinite(decision.deferTimeoutSeconds) &&
+    decision.deferTimeoutSeconds > 0
+  ) {
+    return `${base} (retry in ${decision.deferTimeoutSeconds}s)`;
+  }
+  return base;
+}
+
+function applyModifiedArgs(
+  args: unknown[],
+  modifiedToolArgs?: Record<string, unknown>,
+): unknown[] {
+  if (!modifiedToolArgs) return args;
+
+  const argsValue = modifiedToolArgs.args;
+  if (Array.isArray(argsValue)) {
+    return argsValue;
+  }
+
+  if (
+    args.length === 1 &&
+    args[0] !== null &&
+    typeof args[0] === "object" &&
+    !Array.isArray(args[0])
+  ) {
+    return [modifiedToolArgs];
+  }
+
+  if ("arg0" in modifiedToolArgs) {
+    return [modifiedToolArgs["arg0"]];
+  }
+  if ("input" in modifiedToolArgs) {
+    return [modifiedToolArgs["input"]];
+  }
+
+  const indexed = Object.entries(modifiedToolArgs)
+    .map(([key, value]) => {
+      const match = /^arg(\d+)$/.exec(key);
+      return match ? { index: Number(match[1]), value } : null;
+    })
+    .filter((entry): entry is { index: number; value: unknown } => entry !== null)
+    .sort((a, b) => a.index - b.index);
+  if (
+    indexed.length > 0 &&
+    indexed[0].index === 0 &&
+    indexed[indexed.length - 1].index === indexed.length - 1
+  ) {
+    return indexed.map((entry) => entry.value);
+  }
+
+  return args;
+}
+
 function wrapAsAsyncGenerator(
   toolName: string,
   fn: (...args: unknown[]) => AsyncGenerator,
   _config: ThothConfig,
   _sessionId: string,
   toolCalls: string[],
-  enforce: (args: unknown[]) => Promise<void>,
+  enforce: (args: unknown[]) => Promise<unknown[]>,
   emit: (eventType: string, content: string) => Promise<void>,
 ): (...args: unknown[]) => AsyncGenerator {
   return async function* (...args: unknown[]) {
     await emit("TOOL_CALL_PRE", JSON.stringify(args));
-    await enforce(args);
+    const effectiveArgs = await enforce(args);
     toolCalls.push(toolName);
-    const gen = fn(...args);
+    const gen = fn(...effectiveArgs);
     const results: unknown[] = [];
     try {
       for await (const chunk of gen) {
@@ -148,7 +214,7 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
     const originalRun = tool.run?.bind(tool);
     if (!originalRun) continue;
 
-    const enforce = async (args: unknown[]) => {
+    const enforce = async (args: unknown[]): Promise<unknown[]> => {
       if (cfg.enforcement !== EnforcementMode.OBSERVE) {
         const decision = await checkEnforce(
           cfg,
@@ -182,7 +248,17 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
               decision.violationId,
             );
           }
-          return;
+          if (resolved.decision === DecisionType.DEFER) {
+            throw new ThothPolicyViolation(
+              toolName,
+              buildDeferredReason(resolved),
+              resolved.violationId,
+            );
+          }
+          if (resolved.decision === DecisionType.MODIFY) {
+            return applyModifiedArgs(args, resolved.modifiedToolArgs);
+          }
+          return args;
         }
         if (decision.decision === DecisionType.BLOCK) {
           throw new ThothPolicyViolation(
@@ -191,7 +267,18 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
             decision.violationId,
           );
         }
+        if (decision.decision === DecisionType.DEFER) {
+          throw new ThothPolicyViolation(
+            toolName,
+            buildDeferredReason(decision),
+            decision.violationId,
+          );
+        }
+        if (decision.decision === DecisionType.MODIFY) {
+          return applyModifiedArgs(args, decision.modifiedToolArgs);
+        }
       }
+      return args;
     };
 
     const emit = async (eventType: string, content: string): Promise<void> => {
@@ -228,8 +315,8 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
     } else {
       const wrappedAsync = async (...args: unknown[]) => {
         await emit("TOOL_CALL_PRE", JSON.stringify(args));
-        await enforce(args);
-        const result = await originalRun(...args);
+        const effectiveArgs = await enforce(args);
+        const result = await originalRun(...effectiveArgs);
         toolCalls.push(toolName);
         await emit("TOOL_CALL_POST", JSON.stringify(result));
         return result;

@@ -20,6 +20,8 @@ export enum DecisionType {
   ALLOW = "ALLOW",
   BLOCK = "BLOCK",
   STEP_UP = "STEP_UP",
+  MODIFY = "MODIFY",
+  DEFER = "DEFER",
 }
 
 export interface BehavioralEvent {
@@ -67,6 +69,12 @@ export interface ThothConfig {
    */
   policyContext?: Record<string, unknown>;
   /**
+   * Optional identity binding context for execution-time actor verification.
+   * When omitted, the SDK sends a default binding with agent_id, tenant_id,
+   * and user_id (when available).
+   */
+  identityBinding?: Record<string, unknown>;
+  /**
    * Optional correlation identifier propagated through enforcer -> fastml -> deepllm.
    * Defaults to the instrumented session UUID when omitted.
    */
@@ -80,9 +88,17 @@ export interface ThothConfig {
 
 export interface EnforcementDecision {
   decision: DecisionType;
+  decisionReasonCode?: string;
+  actionClassification?: string;
   reason?: string;
   violationId?: string;
   holdToken?: string;
+  receipt?: Record<string, unknown>;
+  modifiedToolArgs?: Record<string, unknown>;
+  modificationReason?: string;
+  deferReason?: string;
+  deferTimeoutSeconds?: number;
+  stepUpTimeoutSeconds?: number;
 }
 
 export class ThothPolicyViolation extends Error {

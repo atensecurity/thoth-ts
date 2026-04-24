@@ -81,6 +81,55 @@ describe("instrument()", () => {
     await expect(agent.tools[0].run()).rejects.toThrow(ThothPolicyViolation);
   });
 
+  it("applies modified args when decision is MODIFY", async () => {
+    const agent = new FakeAgent();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            authorization_decision: "MODIFY",
+            modified_tool_args: { input: "sanitized" },
+          }),
+      }),
+    );
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl,
+    });
+    const result = await agent.tools[0].run("original");
+    expect(result).toBe("result");
+    expect(agent.tools[0].calls).toContainEqual(["sanitized"]);
+  });
+
+  it("raises ThothPolicyViolation on defer decision", async () => {
+    const agent = new FakeAgent();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            decision: "DEFER",
+            defer_reason: "awaiting additional evidence",
+            defer_timeout_seconds: 30,
+          }),
+      }),
+    );
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl,
+    });
+    await expect(agent.tools[0].run("arg")).rejects.toThrow(
+      /awaiting additional evidence/i,
+    );
+  });
+
   it("fails closed when enforcer is unreachable", async () => {
     const agent = new FakeAgent();
     vi.stubGlobal(

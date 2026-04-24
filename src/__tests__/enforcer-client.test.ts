@@ -66,4 +66,77 @@ describe("enforcer-client response mapping", () => {
     const decision = await awaitStepUpDecision(buildConfig(), "tok_123");
     expect(decision.decision).toBe("ALLOW");
   });
+
+  it("maps authorization_decision aliases and modify payload fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            authorization_decision: "MODIFY",
+            modification_reason: "path normalized",
+            modified_tool_args: { path: "/tmp/safe.txt" },
+          }),
+      }),
+    );
+
+    const decision = await checkEnforce(
+      buildConfig(),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+
+    expect(decision.decision).toBe("MODIFY");
+    expect(decision.modificationReason).toBe("path normalized");
+    expect(decision.modifiedToolArgs).toEqual({ path: "/tmp/safe.txt" });
+  });
+
+  it("maps decision metadata fields and receipt payload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            authorization_decision: "BLOCK",
+            decision_reason_code: "policy_scope_violation",
+            action_classification: "write",
+            reason: "blocked",
+            receipt: { signature: "sig-xyz" },
+          }),
+      }),
+    );
+
+    const decision = await checkEnforce(
+      buildConfig(),
+      "write:file",
+      "sess_1",
+      ["write:file"],
+    );
+
+    expect(decision.decision).toBe("BLOCK");
+    expect(decision.decisionReasonCode).toBe("policy_scope_violation");
+    expect(decision.actionClassification).toBe("write");
+    expect(decision.receipt).toEqual({ signature: "sig-xyz" });
+  });
+
+  it("sends default identity_binding when custom binding is not provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ decision: "ALLOW" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await checkEnforce(buildConfig(), "read:data", "sess_1", ["read:data"]);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.identity_binding).toEqual({
+      agent_id: "agent_1",
+      tenant_id: "tenant_1",
+      user_id: "system",
+    });
+  });
 });

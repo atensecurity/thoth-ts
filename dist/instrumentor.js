@@ -75,12 +75,56 @@ function pendingSessionToolCalls(toolCalls, toolName) {
     }
     return [...toolCalls];
 }
+function buildDeferredReason(decision) {
+    const base = decision.deferReason ??
+        decision.reason ??
+        "deferred pending additional context";
+    if (typeof decision.deferTimeoutSeconds === "number" &&
+        Number.isFinite(decision.deferTimeoutSeconds) &&
+        decision.deferTimeoutSeconds > 0) {
+        return `${base} (retry in ${decision.deferTimeoutSeconds}s)`;
+    }
+    return base;
+}
+function applyModifiedArgs(args, modifiedToolArgs) {
+    if (!modifiedToolArgs)
+        return args;
+    const argsValue = modifiedToolArgs.args;
+    if (Array.isArray(argsValue)) {
+        return argsValue;
+    }
+    if (args.length === 1 &&
+        args[0] !== null &&
+        typeof args[0] === "object" &&
+        !Array.isArray(args[0])) {
+        return [modifiedToolArgs];
+    }
+    if ("arg0" in modifiedToolArgs) {
+        return [modifiedToolArgs["arg0"]];
+    }
+    if ("input" in modifiedToolArgs) {
+        return [modifiedToolArgs["input"]];
+    }
+    const indexed = Object.entries(modifiedToolArgs)
+        .map(([key, value]) => {
+        const match = /^arg(\d+)$/.exec(key);
+        return match ? { index: Number(match[1]), value } : null;
+    })
+        .filter((entry) => entry !== null)
+        .sort((a, b) => a.index - b.index);
+    if (indexed.length > 0 &&
+        indexed[0].index === 0 &&
+        indexed[indexed.length - 1].index === indexed.length - 1) {
+        return indexed.map((entry) => entry.value);
+    }
+    return args;
+}
 function wrapAsAsyncGenerator(toolName, fn, _config, _sessionId, toolCalls, enforce, emit) {
     return async function* (...args) {
         await emit("TOOL_CALL_PRE", JSON.stringify(args));
-        await enforce(args);
+        const effectiveArgs = await enforce(args);
         toolCalls.push(toolName);
-        const gen = fn(...args);
+        const gen = fn(...effectiveArgs);
         const results = [];
         try {
             for await (const chunk of gen) {
@@ -123,12 +167,25 @@ export function instrument(agent, config) {
                     if (resolved.decision === DecisionType.STEP_UP) {
                         throw new ThothPolicyViolation(toolName, "step-up unresolved", decision.violationId);
                     }
-                    return;
+                    if (resolved.decision === DecisionType.DEFER) {
+                        throw new ThothPolicyViolation(toolName, buildDeferredReason(resolved), resolved.violationId);
+                    }
+                    if (resolved.decision === DecisionType.MODIFY) {
+                        return applyModifiedArgs(args, resolved.modifiedToolArgs);
+                    }
+                    return args;
                 }
                 if (decision.decision === DecisionType.BLOCK) {
                     throw new ThothPolicyViolation(toolName, decision.reason ?? "blocked", decision.violationId);
                 }
+                if (decision.decision === DecisionType.DEFER) {
+                    throw new ThothPolicyViolation(toolName, buildDeferredReason(decision), decision.violationId);
+                }
+                if (decision.decision === DecisionType.MODIFY) {
+                    return applyModifiedArgs(args, decision.modifiedToolArgs);
+                }
             }
+            return args;
         };
         const emit = async (eventType, content) => {
             const event = {
@@ -155,8 +212,8 @@ export function instrument(agent, config) {
         else {
             const wrappedAsync = async (...args) => {
                 await emit("TOOL_CALL_PRE", JSON.stringify(args));
-                await enforce(args);
-                const result = await originalRun(...args);
+                const effectiveArgs = await enforce(args);
+                const result = await originalRun(...effectiveArgs);
                 toolCalls.push(toolName);
                 await emit("TOOL_CALL_POST", JSON.stringify(result));
                 return result;
