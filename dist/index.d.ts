@@ -1,4 +1,5 @@
 export { instrument } from "./instrumentor";
+export { ThothClient } from "./client";
 export { ThothPolicyViolation } from "./models";
 export type { BehavioralEvent, ThothConfig, EnforcementDecision, ThothConfig as InstrumentOptions, } from "./models";
 export { EnforcementMode, DecisionType, SourceType, EventType } from "./models";

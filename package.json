@@ -1,6 +1,6 @@
 {
   "name": "@atensec/thoth",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "author": "Aten Engineering <engineering@atensecurity.com>",
   "description": "AI agent governance SDK by Aten Security",
   "main": "./dist/index.js",
@@ -28,6 +28,7 @@
     "zod": "^3.0.0"
   },
   "devDependencies": {
+    "@types/node": "22.15.3",
     "typescript": "5.8.3",
     "vitest": "2.1.9"
   },

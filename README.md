@@ -12,17 +12,18 @@ for human approval, or silently observing based on your configured enforcement m
 
 1. [Installation](#installation)
 2. [Quick Start](#quick-start)
-3. [How It Works](#how-it-works)
-4. [LangChain.js Example](#langchainjs-example)
-5. [Framework Integrations](#framework-integrations)
+3. [Legacy ThothClient](#legacy-thothclient)
+4. [How It Works](#how-it-works)
+5. [LangChain.js Example](#langchainjs-example)
+6. [Framework Integrations](#framework-integrations)
    - [Anthropic Claude](#anthropic-claude)
    - [OpenAI Function Calling](#openai-function-calling)
-6. [Configuration Reference](#configuration-reference)
-7. [Error Handling](#error-handling)
-8. [Environment Variables](#environment-variables)
-9. [Enforcement Modes](#enforcement-modes)
-10. [Policy Decisions](#policy-decisions)
-11. [Dashboard](#dashboard)
+7. [Configuration Reference](#configuration-reference)
+8. [Error Handling](#error-handling)
+9. [Environment Variables](#environment-variables)
+10. [Enforcement Modes](#enforcement-modes)
+11. [Policy Decisions](#policy-decisions)
+12. [Dashboard](#dashboard)
 
 ---
 
@@ -80,6 +81,40 @@ const result = await governed.run(
 
 ---
 
+## Legacy ThothClient
+
+Module-level APIs are preferred for new integrations:
+
+- `instrument()`
+- `wrapAnthropicTools()`
+- `wrapOpenAITools()`
+
+`ThothClient` remains supported for backward compatibility:
+
+```typescript
+import { ThothClient } from "@atensec/thoth";
+
+const client = new ThothClient({
+  tenantId: "your-tenant-id",
+  userId: "alice@example.com",
+});
+
+client.instrument(agent, {
+  agentId: "document-summarizer",
+  approvedScope: ["web_search", "read_file"],
+  apiUrl: process.env.THOTH_API_URL!,
+});
+
+// Legacy aliases:
+client.wrap(agent, {
+  agentId: "document-summarizer",
+  approvedScope: ["web_search", "read_file"],
+  apiUrl: process.env.THOTH_API_URL!,
+});
+```
+
+---
+
 ## How It Works
 
 ```
@@ -102,8 +137,8 @@ Thoth intercepts (instrument)
 ```
 
 Events are emitted to the Aten ingest API asynchronously and never block tool execution. If the
-enforcer is unreachable, Thoth fails open (`ALLOW`) — it never interrupts production traffic due
-to an infrastructure fault.
+enforcer is unreachable, Thoth fails closed (`BLOCK`) and raises `ThothPolicyViolation` before
+tool execution.
 
 Streaming tools (async generators) are supported: `TOOL_CALL_PRE` is emitted before the first
 yield, `TOOL_CALL_POST` is emitted after generator exhaustion.
@@ -280,8 +315,8 @@ while (true) {
 
 ## Configuration Reference
 
-All options are passed as the second argument to `instrument()`, `wrapAnthropicTools()`, or
-`wrapOpenAITools()`.
+All options are passed as the second argument to `instrument()`, `wrapAnthropicTools()`,
+`wrapOpenAITools()`, or the `ThothClient.instrument*()` methods.
 
 | Field                  | Type                        | Required | Default          | Description                                                                    |
 | ---------------------- | --------------------------- | -------- | ---------------- | ------------------------------------------------------------------------------ |
