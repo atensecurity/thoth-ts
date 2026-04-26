@@ -56,11 +56,14 @@ export async function checkEnforce(config, toolName, sessionId, sessionToolCalls
             }),
             signal: AbortSignal.timeout(5000),
         });
-        if (!resp.ok)
+        if (!resp.ok) {
+            console.error("thoth: enforcer returned non-2xx, fail-closed fallback to BLOCK (status=%s tool=%s)", resp.status, toolName);
             return FALLBACK;
+        }
         return toEnforcementDecision(await resp.json());
     }
-    catch {
+    catch (error) {
+        console.error("thoth: enforcer unreachable, fail-closed fallback to BLOCK (tool=%s):", toolName, error);
         return FALLBACK; // non-fatal
     }
 }
@@ -160,8 +163,8 @@ export async function awaitStepUpDecision(config, holdToken) {
                 return directDecision;
             }
         }
-        catch {
-            // non-fatal polling failure
+        catch (error) {
+            console.error("thoth: step-up poll failure for hold_token=%s:", holdToken, error);
         }
         await sleep(config.stepUpPollIntervalMs);
     }

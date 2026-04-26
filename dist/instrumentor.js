@@ -1,13 +1,18 @@
-import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, } from "./models";
+import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, EventType, } from "./models";
 import { awaitStepUpDecision, checkEnforce } from "./enforcer-client";
 import { emitBehavioralEvent } from "./emitter";
+const DEFAULT_ENVIRONMENT = ((typeof process !== "undefined" &&
+    (process.env?.THOTH_ENVIRONMENT || process.env?.THOTH_ENV)) ||
+    "prod")
+    .trim()
+    .toLowerCase();
 const DEFAULTS = {
     enforcement: EnforcementMode.PROGRESSIVE,
     apiKey: (typeof process !== "undefined" && process.env?.THOTH_API_KEY) || undefined,
     userId: "system",
     stepUpTimeoutMinutes: 15,
     stepUpPollIntervalMs: 5000,
-    environment: "prod",
+    environment: DEFAULT_ENVIRONMENT || "prod",
 };
 function resolveApiUrl(config) {
     const fromConfig = config.apiUrl?.trim() ?? "";
@@ -86,6 +91,12 @@ function buildDeferredReason(decision) {
     }
     return base;
 }
+function logDecision(toolName, decision, phase, sessionId, traceId) {
+    if (typeof console?.debug !== "function") {
+        return;
+    }
+    console.debug("thoth %s decision tool=%s decision=%s reason_code=%s reason=%s trace_id=%s session_id=%s", phase, toolName, decision.decision, decision.decisionReasonCode ?? "", decision.reason ?? "", traceId, sessionId);
+}
 function applyModifiedArgs(args, modifiedToolArgs) {
     if (!modifiedToolArgs)
         return args;
@@ -147,6 +158,26 @@ export function instrument(agent, config) {
     const tools = agent.tools;
     if (!Array.isArray(tools))
         return agent;
+    const llmInvocationEvent = {
+        eventId: crypto.randomUUID(),
+        eventType: EventType.LLM_INVOCATION,
+        agentId: cfg.agentId,
+        tenantId: cfg.tenantId,
+        sessionId,
+        toolName: "thoth_sdk",
+        occurredAt: new Date(),
+        content: "thoth_sdk_session_start",
+        sourceType: SourceType.AGENT_LLM_INVOCATION,
+        userId: cfg.userId,
+        approvedScope: cfg.approvedScope,
+        enforcementMode: cfg.enforcement,
+        sessionToolCalls: [],
+        metadata: {
+            enforcement_trace_id: enforcementTraceId,
+            environment: cfg.environment,
+        },
+    };
+    void emitBehavioralEvent(llmInvocationEvent, cfg.apiUrl, cfg.apiKey ?? "").catch(() => undefined);
     for (const tool of tools) {
         const toolName = tool.name ?? String(tool);
         const originalRun = tool.run?.bind(tool);
@@ -155,12 +186,14 @@ export function instrument(agent, config) {
         const enforce = async (args) => {
             if (cfg.enforcement !== EnforcementMode.OBSERVE) {
                 const decision = await checkEnforce(cfg, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), enforcementTraceId);
+                logDecision(toolName, decision, "enforce", sessionId, enforcementTraceId);
                 if (decision.decision === DecisionType.STEP_UP) {
                     const holdToken = decision.holdToken;
                     if (!holdToken) {
                         throw new ThothPolicyViolation(toolName, decision.reason ?? "step-up required but hold token missing", decision.violationId);
                     }
                     const resolved = await awaitStepUpDecision(cfg, holdToken);
+                    logDecision(toolName, resolved, "step_up_resolved", sessionId, enforcementTraceId);
                     if (resolved.decision === DecisionType.BLOCK) {
                         throw new ThothPolicyViolation(toolName, resolved.reason ?? "step-up blocked", resolved.violationId);
                     }

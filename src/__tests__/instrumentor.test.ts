@@ -523,4 +523,45 @@ describe("instrument()", () => {
       }),
     ).toThrow("Thoth API URL is required");
   });
+
+  it("uses THOTH_ENVIRONMENT fallback when environment is omitted", async () => {
+    const agent = new FakeAgent();
+    if (typeof process !== "undefined") {
+      process.env.THOTH_ENV = "";
+      process.env.THOTH_ENVIRONMENT = "dev";
+    }
+    vi.resetModules();
+    const { instrument: instrumentWithEnvFallback } = await import(
+      "../instrumentor"
+    );
+
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/enforce")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ decision: "ALLOW" }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrumentWithEnvFallback(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl: "https://enforce.trantor.atensecurity.com",
+    });
+
+    await agent.tools[0].run("arg");
+    const enforceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/enforce"),
+    );
+    const init = (enforceCall?.[1] ?? {}) as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.environment).toBe("dev");
+  });
 });
