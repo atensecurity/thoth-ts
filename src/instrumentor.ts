@@ -28,6 +28,53 @@ const DEFAULTS = {
   environment: DEFAULT_ENVIRONMENT || "prod",
 };
 
+type ResolvedLogLevel = "debug" | "info" | "warn" | "error";
+
+function resolveSdkLogLevel(): ResolvedLogLevel | null {
+  const raw = (
+    (typeof process !== "undefined" &&
+      (process.env?.THOTH_LOG_LEVEL || process.env?.LOG_LEVEL)) ||
+    ""
+  ).trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (/^-?\d+$/.test(raw)) {
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+    if (numeric <= 10) return "debug";
+    if (numeric <= 20) return "info";
+    if (numeric <= 30) return "warn";
+    return "error";
+  }
+
+  switch (raw.toUpperCase()) {
+    case "TRACE":
+    case "DEBUG":
+    case "NOTSET":
+      return "debug";
+    case "INFO":
+      return "info";
+    case "WARN":
+    case "WARNING":
+      return "warn";
+    case "ERROR":
+    case "CRITICAL":
+    case "FATAL":
+      return "error";
+    default:
+      return null;
+  }
+}
+
+function shouldLogDecisionDebug(): boolean {
+  const level = resolveSdkLogLevel();
+  return level === null || level === "debug";
+}
+
 function tenantScopedEventId(tenantId: string): string {
   const tenant = tenantId.trim() || "unknown";
   return `${tenant}:${crypto.randomUUID()}`;
@@ -144,21 +191,23 @@ function logDecision(
     decision: DecisionType;
     decisionReasonCode?: string;
     reason?: string;
+    holdToken?: string;
   },
   phase: "enforce" | "step_up_resolved",
   sessionId: string,
   traceId: string,
 ): void {
-  if (typeof console?.debug !== "function") {
+  if (typeof console?.debug !== "function" || !shouldLogDecisionDebug()) {
     return;
   }
   console.debug(
-    "thoth %s decision tool=%s decision=%s reason_code=%s reason=%s trace_id=%s session_id=%s",
+    "thoth %s decision tool=%s decision=%s reason_code=%s reason=%s hold_token=%s trace_id=%s session_id=%s",
     phase,
     toolName,
     decision.decision,
     decision.decisionReasonCode ?? "",
     decision.reason ?? "",
+    decision.holdToken ?? "",
     traceId,
     sessionId,
   );

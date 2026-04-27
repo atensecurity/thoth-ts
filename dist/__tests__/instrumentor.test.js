@@ -471,5 +471,93 @@ describe("instrument()", () => {
         const body = JSON.parse(String(init.body));
         expect(body.environment).toBe("dev");
     });
+    it("includes hold_token in debug decision logs", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockImplementation((url) => {
+            if (url.includes("/v1/enforce/hold/")) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ resolved: true, resolution: "ALLOW" }),
+                });
+            }
+            if (url.includes("/v1/enforce")) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        decision: "STEP_UP",
+                        hold_token: "tok_step_up_trace",
+                    }),
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({}),
+            });
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => { });
+        const previousLogLevel = typeof process !== "undefined" ? process.env.THOTH_LOG_LEVEL : undefined;
+        if (typeof process !== "undefined") {
+            process.env.THOTH_LOG_LEVEL = "DEBUG";
+        }
+        try {
+            instrument(agent, {
+                agentId: "test",
+                approvedScope: ["read:data"],
+                tenantId: "trantor",
+                apiUrl,
+                stepUpTimeoutMinutes: 1,
+                stepUpPollIntervalMs: 1,
+            });
+            await agent.tools[0].run("arg");
+            const debugOutput = debugSpy.mock.calls.flat().join(" ");
+            expect(debugOutput).toContain("hold_token=%s");
+            expect(debugOutput).toContain("tok_step_up_trace");
+        }
+        finally {
+            debugSpy.mockRestore();
+            if (typeof process !== "undefined") {
+                if (previousLogLevel === undefined) {
+                    delete process.env.THOTH_LOG_LEVEL;
+                }
+                else {
+                    process.env.THOTH_LOG_LEVEL = previousLogLevel;
+                }
+            }
+        }
+    });
+    it("suppresses debug decision logs when THOTH_LOG_LEVEL is info", async () => {
+        const agent = new FakeAgent();
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ decision: "ALLOW" }),
+        }));
+        const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => { });
+        const previousLogLevel = typeof process !== "undefined" ? process.env.THOTH_LOG_LEVEL : undefined;
+        if (typeof process !== "undefined") {
+            process.env.THOTH_LOG_LEVEL = "INFO";
+        }
+        try {
+            instrument(agent, {
+                agentId: "test",
+                approvedScope: ["read:data"],
+                tenantId: "trantor",
+                apiUrl,
+            });
+            await agent.tools[0].run("arg");
+            expect(debugSpy).not.toHaveBeenCalled();
+        }
+        finally {
+            debugSpy.mockRestore();
+            if (typeof process !== "undefined") {
+                if (previousLogLevel === undefined) {
+                    delete process.env.THOTH_LOG_LEVEL;
+                }
+                else {
+                    process.env.THOTH_LOG_LEVEL = previousLogLevel;
+                }
+            }
+        }
+    });
 });
 //# sourceMappingURL=instrumentor.test.js.map
