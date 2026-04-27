@@ -28,6 +28,11 @@ const DEFAULTS = {
   environment: DEFAULT_ENVIRONMENT || "prod",
 };
 
+function tenantScopedEventId(tenantId: string): string {
+  const tenant = tenantId.trim() || "unknown";
+  return `${tenant}:${crypto.randomUUID()}`;
+}
+
 function resolveApiUrl(config: ThothConfig): string {
   const fromConfig = config.apiUrl?.trim() ?? "";
   const fromEnv = (
@@ -244,7 +249,7 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
   if (!Array.isArray(tools)) return agent;
 
   const llmInvocationEvent: BehavioralEvent = {
-    eventId: crypto.randomUUID(),
+    eventId: tenantScopedEventId(cfg.tenantId),
     eventType: EventType.LLM_INVOCATION,
     agentId: cfg.agentId,
     tenantId: cfg.tenantId,
@@ -348,7 +353,7 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
 
     const emit = async (eventType: string, content: string): Promise<void> => {
       const event: BehavioralEvent = {
-        eventId: crypto.randomUUID(),
+        eventId: tenantScopedEventId(cfg.tenantId),
         eventType: eventType as EventType,
         agentId: cfg.agentId,
         tenantId: cfg.tenantId,

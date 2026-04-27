@@ -14,6 +14,10 @@ const DEFAULTS = {
     stepUpPollIntervalMs: 5000,
     environment: DEFAULT_ENVIRONMENT || "prod",
 };
+function tenantScopedEventId(tenantId) {
+    const tenant = tenantId.trim() || "unknown";
+    return `${tenant}:${crypto.randomUUID()}`;
+}
 function resolveApiUrl(config) {
     const fromConfig = config.apiUrl?.trim() ?? "";
     const fromEnv = ((typeof process !== "undefined" && process.env?.THOTH_API_URL) ||
@@ -159,7 +163,7 @@ export function instrument(agent, config) {
     if (!Array.isArray(tools))
         return agent;
     const llmInvocationEvent = {
-        eventId: crypto.randomUUID(),
+        eventId: tenantScopedEventId(cfg.tenantId),
         eventType: EventType.LLM_INVOCATION,
         agentId: cfg.agentId,
         tenantId: cfg.tenantId,
@@ -222,7 +226,7 @@ export function instrument(agent, config) {
         };
         const emit = async (eventType, content) => {
             const event = {
-                eventId: crypto.randomUUID(),
+                eventId: tenantScopedEventId(cfg.tenantId),
                 eventType: eventType,
                 agentId: cfg.agentId,
                 tenantId: cfg.tenantId,
