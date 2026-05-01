@@ -176,10 +176,190 @@ function applyModifiedArgs(args, modifiedToolArgs) {
     }
     return args;
 }
-function wrapAsAsyncGenerator(toolName, fn, _config, _sessionId, toolCalls, enforce, emit) {
+function payloadSizeBytes(value) {
+    try {
+        return JSON.stringify(value).length;
+    }
+    catch {
+        return undefined;
+    }
+}
+function decisionToMetadata(decision) {
+    if (!decision) {
+        return {};
+    }
+    const metadata = {
+        authorization_decision: decision.authorizationDecision ?? decision.decision,
+    };
+    if (decision.decisionReasonCode) {
+        metadata.decision_reason_code = decision.decisionReasonCode;
+    }
+    if (decision.actionClassification) {
+        metadata.action_classification = decision.actionClassification;
+    }
+    if (decision.deferTimeoutSeconds) {
+        metadata.defer_timeout_seconds = decision.deferTimeoutSeconds;
+    }
+    if (decision.stepUpTimeoutSeconds) {
+        metadata.step_up_timeout_seconds = decision.stepUpTimeoutSeconds;
+    }
+    if (typeof decision.riskScore === "number") {
+        metadata.risk_score = decision.riskScore;
+    }
+    if (typeof decision.latencyMs === "number") {
+        metadata.latency_ms = decision.latencyMs;
+    }
+    if (decision.packId) {
+        metadata.pack_id = decision.packId;
+    }
+    if (decision.packVersion) {
+        metadata.pack_version = decision.packVersion;
+    }
+    if (typeof decision.ruleVersion === "number") {
+        metadata.rule_version = decision.ruleVersion;
+    }
+    if (decision.regulatoryRegimes) {
+        metadata.regulatory_regimes = decision.regulatoryRegimes;
+    }
+    if (decision.matchedRuleIds) {
+        metadata.matched_rule_ids = decision.matchedRuleIds;
+    }
+    if (decision.matchedControlIds) {
+        metadata.matched_control_ids = decision.matchedControlIds;
+    }
+    if (decision.policyReferences) {
+        metadata.policy_references = decision.policyReferences;
+    }
+    if (decision.modelSignals) {
+        metadata.model_signals = decision.modelSignals;
+    }
+    if (decision.receipt) {
+        metadata.receipt = decision.receipt;
+    }
+    return metadata;
+}
+function createPolicyViolation(toolName, decision, fallbackReason) {
+    return new ThothPolicyViolation(toolName, decision.reason ?? fallbackReason, decision.violationId, {
+        decisionReasonCode: decision.decisionReasonCode,
+        actionClassification: decision.actionClassification,
+        authorizationDecision: decision.authorizationDecision ?? decision.decision,
+        deferTimeoutSeconds: decision.deferTimeoutSeconds,
+        stepUpTimeoutSeconds: decision.stepUpTimeoutSeconds,
+        riskScore: decision.riskScore,
+        latencyMs: decision.latencyMs,
+        packId: decision.packId,
+        packVersion: decision.packVersion,
+        ruleVersion: decision.ruleVersion,
+        regulatoryRegimes: decision.regulatoryRegimes,
+        matchedRuleIds: decision.matchedRuleIds,
+        matchedControlIds: decision.matchedControlIds,
+        policyReferences: decision.policyReferences,
+        modelSignals: decision.modelSignals,
+        receipt: decision.receipt,
+    });
+}
+function baseToolEventMetadata(toolName, args, cfg, enforcementTraceId) {
+    const toolArgs = toolArgsFromCall(args);
+    return {
+        sdk_language: "typescript",
+        environment: cfg.environment,
+        enforcement_trace_id: enforcementTraceId,
+        tool_call: {
+            name: toolName,
+            arguments: toolArgs,
+        },
+        tool_args: toolArgs,
+    };
+}
+function policyViolationMetadata(violation) {
+    const metadata = {
+        authorization_decision: violation.authorizationDecision ?? DecisionType.BLOCK,
+    };
+    if (violation.decisionReasonCode) {
+        metadata.decision_reason_code = violation.decisionReasonCode;
+    }
+    if (violation.actionClassification) {
+        metadata.action_classification = violation.actionClassification;
+    }
+    if (violation.deferTimeoutSeconds) {
+        metadata.defer_timeout_seconds = violation.deferTimeoutSeconds;
+    }
+    if (violation.stepUpTimeoutSeconds) {
+        metadata.step_up_timeout_seconds = violation.stepUpTimeoutSeconds;
+    }
+    if (typeof violation.riskScore === "number") {
+        metadata.risk_score = violation.riskScore;
+    }
+    if (typeof violation.latencyMs === "number") {
+        metadata.latency_ms = violation.latencyMs;
+    }
+    if (violation.packId) {
+        metadata.pack_id = violation.packId;
+    }
+    if (violation.packVersion) {
+        metadata.pack_version = violation.packVersion;
+    }
+    if (typeof violation.ruleVersion === "number") {
+        metadata.rule_version = violation.ruleVersion;
+    }
+    if (violation.regulatoryRegimes) {
+        metadata.regulatory_regimes = violation.regulatoryRegimes;
+    }
+    if (violation.matchedRuleIds) {
+        metadata.matched_rule_ids = violation.matchedRuleIds;
+    }
+    if (violation.matchedControlIds) {
+        metadata.matched_control_ids = violation.matchedControlIds;
+    }
+    if (violation.policyReferences) {
+        metadata.policy_references = violation.policyReferences;
+    }
+    if (violation.modelSignals) {
+        metadata.model_signals = violation.modelSignals;
+    }
+    if (violation.receipt) {
+        metadata.receipt = violation.receipt;
+    }
+    return metadata;
+}
+function wrapAsAsyncGenerator(toolName, fn, toolCalls, enforce, emit, baseMetadataForArgs) {
     return async function* (...args) {
-        await emit("TOOL_CALL_PRE", JSON.stringify(args));
-        const effectiveArgs = await enforce(args);
+        const baseMetadata = baseMetadataForArgs(args);
+        const start = Date.now();
+        const sessionToolCalls = pendingSessionToolCalls(toolCalls, toolName);
+        await emit({
+            eventType: EventType.TOOL_CALL_PRE,
+            content: "tool invocation requested",
+            sessionToolCalls,
+            metadata: {
+                ...baseMetadata,
+                event_phase: "pre",
+            },
+        });
+        let effectiveArgs;
+        let decision;
+        try {
+            const outcome = await enforce(args);
+            effectiveArgs = outcome.effectiveArgs;
+            decision = outcome.decision;
+        }
+        catch (error) {
+            if (error instanceof ThothPolicyViolation) {
+                await emit({
+                    eventType: EventType.TOOL_CALL_BLOCK,
+                    content: error.reason,
+                    sessionToolCalls,
+                    violationId: error.violationId,
+                    metadata: {
+                        ...baseMetadata,
+                        ...policyViolationMetadata(error),
+                        event_phase: "block",
+                        duration_ms: Date.now() - start,
+                    },
+                });
+            }
+            throw error;
+        }
         toolCalls.push(toolName);
         const gen = fn(...effectiveArgs);
         const results = [];
@@ -188,9 +368,22 @@ function wrapAsAsyncGenerator(toolName, fn, _config, _sessionId, toolCalls, enfo
                 results.push(chunk);
                 yield chunk;
             }
+            await emit({
+                eventType: EventType.TOOL_CALL_POST,
+                content: "tool invocation completed",
+                sessionToolCalls: toolCalls,
+                metadata: {
+                    ...baseMetadata,
+                    ...decisionToMetadata(decision),
+                    event_phase: "post",
+                    duration_ms: Date.now() - start,
+                    result_type: "array",
+                    result_size_bytes: payloadSizeBytes(results),
+                },
+            });
         }
         finally {
-            await emit("TOOL_CALL_POST", JSON.stringify(results));
+            // no-op: handled above so we can emit richer metadata and duration
         }
     };
 }
@@ -230,46 +423,101 @@ export function instrument(agent, config) {
         if (!originalRun)
             continue;
         const enforce = async (args) => {
-            if (cfg.enforcement !== EnforcementMode.OBSERVE) {
-                const decision = await checkEnforce(cfg, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), enforcementTraceId);
-                logDecision(toolName, decision, "enforce", sessionId, enforcementTraceId);
-                if (decision.decision === DecisionType.STEP_UP) {
-                    const holdToken = decision.holdToken;
-                    if (!holdToken) {
-                        throw new ThothPolicyViolation(toolName, decision.reason ?? "step-up required but hold token missing", decision.violationId);
-                    }
-                    const resolved = await awaitStepUpDecision(cfg, holdToken);
-                    logDecision(toolName, resolved, "step_up_resolved", sessionId, enforcementTraceId);
-                    if (resolved.decision === DecisionType.BLOCK) {
-                        throw new ThothPolicyViolation(toolName, resolved.reason ?? "step-up blocked", resolved.violationId);
-                    }
-                    if (resolved.decision === DecisionType.STEP_UP) {
-                        throw new ThothPolicyViolation(toolName, "step-up unresolved", decision.violationId);
-                    }
-                    if (resolved.decision === DecisionType.DEFER) {
-                        throw new ThothPolicyViolation(toolName, buildDeferredReason(resolved), resolved.violationId);
-                    }
-                    if (resolved.decision === DecisionType.MODIFY) {
-                        return applyModifiedArgs(args, resolved.modifiedToolArgs);
-                    }
-                    return args;
-                }
-                if (decision.decision === DecisionType.BLOCK) {
-                    throw new ThothPolicyViolation(toolName, decision.reason ?? "blocked", decision.violationId);
-                }
-                if (decision.decision === DecisionType.DEFER) {
-                    throw new ThothPolicyViolation(toolName, buildDeferredReason(decision), decision.violationId);
-                }
-                if (decision.decision === DecisionType.MODIFY) {
-                    return applyModifiedArgs(args, decision.modifiedToolArgs);
-                }
+            if (cfg.enforcement === EnforcementMode.OBSERVE) {
+                return { effectiveArgs: args };
             }
-            return args;
+            const decision = await checkEnforce(cfg, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), enforcementTraceId);
+            logDecision(toolName, decision, "enforce", sessionId, enforcementTraceId);
+            if (decision.decision === DecisionType.STEP_UP) {
+                const holdToken = decision.holdToken;
+                if (!holdToken) {
+                    throw createPolicyViolation(toolName, decision, "step-up required but hold token missing");
+                }
+                const resolved = await awaitStepUpDecision(cfg, holdToken);
+                logDecision(toolName, resolved, "step_up_resolved", sessionId, enforcementTraceId);
+                if (resolved.decision === DecisionType.BLOCK) {
+                    throw createPolicyViolation(toolName, resolved, "step-up blocked");
+                }
+                if (resolved.decision === DecisionType.STEP_UP) {
+                    throw new ThothPolicyViolation(toolName, "step-up unresolved", decision.violationId ?? resolved.violationId, {
+                        decisionReasonCode: resolved.decisionReasonCode ?? decision.decisionReasonCode,
+                        actionClassification: resolved.actionClassification ?? decision.actionClassification,
+                        authorizationDecision: DecisionType.STEP_UP,
+                        stepUpTimeoutSeconds: resolved.stepUpTimeoutSeconds ?? decision.stepUpTimeoutSeconds,
+                        riskScore: resolved.riskScore ?? decision.riskScore,
+                        latencyMs: resolved.latencyMs ?? decision.latencyMs,
+                        packId: resolved.packId ?? decision.packId,
+                        packVersion: resolved.packVersion ?? decision.packVersion,
+                        ruleVersion: resolved.ruleVersion ?? decision.ruleVersion,
+                        regulatoryRegimes: resolved.regulatoryRegimes ?? decision.regulatoryRegimes,
+                        matchedRuleIds: resolved.matchedRuleIds ?? decision.matchedRuleIds,
+                        matchedControlIds: resolved.matchedControlIds ?? decision.matchedControlIds,
+                        policyReferences: resolved.policyReferences ?? decision.policyReferences,
+                        modelSignals: resolved.modelSignals ?? decision.modelSignals,
+                        receipt: resolved.receipt ?? decision.receipt,
+                    });
+                }
+                if (resolved.decision === DecisionType.DEFER) {
+                    throw new ThothPolicyViolation(toolName, buildDeferredReason(resolved), resolved.violationId, {
+                        decisionReasonCode: resolved.decisionReasonCode,
+                        actionClassification: resolved.actionClassification,
+                        authorizationDecision: DecisionType.DEFER,
+                        deferTimeoutSeconds: resolved.deferTimeoutSeconds,
+                        riskScore: resolved.riskScore,
+                        latencyMs: resolved.latencyMs,
+                        packId: resolved.packId,
+                        packVersion: resolved.packVersion,
+                        ruleVersion: resolved.ruleVersion,
+                        regulatoryRegimes: resolved.regulatoryRegimes,
+                        matchedRuleIds: resolved.matchedRuleIds,
+                        matchedControlIds: resolved.matchedControlIds,
+                        policyReferences: resolved.policyReferences,
+                        modelSignals: resolved.modelSignals,
+                        receipt: resolved.receipt,
+                    });
+                }
+                if (resolved.decision === DecisionType.MODIFY) {
+                    return {
+                        effectiveArgs: applyModifiedArgs(args, resolved.modifiedToolArgs),
+                        decision: resolved,
+                    };
+                }
+                return { effectiveArgs: args, decision: resolved };
+            }
+            if (decision.decision === DecisionType.BLOCK) {
+                throw createPolicyViolation(toolName, decision, "blocked");
+            }
+            if (decision.decision === DecisionType.DEFER) {
+                throw new ThothPolicyViolation(toolName, buildDeferredReason(decision), decision.violationId, {
+                    decisionReasonCode: decision.decisionReasonCode,
+                    actionClassification: decision.actionClassification,
+                    authorizationDecision: DecisionType.DEFER,
+                    deferTimeoutSeconds: decision.deferTimeoutSeconds,
+                    riskScore: decision.riskScore,
+                    latencyMs: decision.latencyMs,
+                    packId: decision.packId,
+                    packVersion: decision.packVersion,
+                    ruleVersion: decision.ruleVersion,
+                    regulatoryRegimes: decision.regulatoryRegimes,
+                    matchedRuleIds: decision.matchedRuleIds,
+                    matchedControlIds: decision.matchedControlIds,
+                    policyReferences: decision.policyReferences,
+                    modelSignals: decision.modelSignals,
+                    receipt: decision.receipt,
+                });
+            }
+            if (decision.decision === DecisionType.MODIFY) {
+                return {
+                    effectiveArgs: applyModifiedArgs(args, decision.modifiedToolArgs),
+                    decision,
+                };
+            }
+            return { effectiveArgs: args, decision };
         };
-        const emit = async (eventType, content) => {
+        const emit = async ({ eventType, content, sessionToolCalls, metadata, violationId, }) => {
             const event = {
                 eventId: tenantScopedEventId(cfg.tenantId),
-                eventType: eventType,
+                eventType,
                 agentId: cfg.agentId,
                 tenantId: cfg.tenantId,
                 sessionId,
@@ -280,21 +528,66 @@ export function instrument(agent, config) {
                 userId: cfg.userId,
                 approvedScope: cfg.approvedScope,
                 enforcementMode: cfg.enforcement,
-                sessionToolCalls: toolCalls,
+                sessionToolCalls,
+                metadata,
+                violationId,
             };
             await emitBehavioralEvent(event, cfg.apiUrl, cfg.apiKey ?? "");
         };
         let wrapped;
         if (isAsyncGeneratorFunction(originalRun)) {
-            wrapped = wrapAsAsyncGenerator(toolName, originalRun, config, sessionId, toolCalls, enforce, emit);
+            wrapped = wrapAsAsyncGenerator(toolName, originalRun, toolCalls, enforce, emit, (args) => baseToolEventMetadata(toolName, args, cfg, enforcementTraceId));
         }
         else {
             const wrappedAsync = async (...args) => {
-                await emit("TOOL_CALL_PRE", JSON.stringify(args));
-                const effectiveArgs = await enforce(args);
-                const result = await originalRun(...effectiveArgs);
+                const start = Date.now();
+                const baseMetadata = baseToolEventMetadata(toolName, args, cfg, enforcementTraceId);
+                const sessionToolCalls = pendingSessionToolCalls(toolCalls, toolName);
+                await emit({
+                    eventType: EventType.TOOL_CALL_PRE,
+                    content: "tool invocation requested",
+                    sessionToolCalls,
+                    metadata: {
+                        ...baseMetadata,
+                        event_phase: "pre",
+                    },
+                });
+                let outcome;
+                try {
+                    outcome = await enforce(args);
+                }
+                catch (error) {
+                    if (error instanceof ThothPolicyViolation) {
+                        await emit({
+                            eventType: EventType.TOOL_CALL_BLOCK,
+                            content: error.reason,
+                            sessionToolCalls,
+                            violationId: error.violationId,
+                            metadata: {
+                                ...baseMetadata,
+                                ...policyViolationMetadata(error),
+                                event_phase: "block",
+                                duration_ms: Date.now() - start,
+                            },
+                        });
+                    }
+                    throw error;
+                }
+                const result = await originalRun(...outcome.effectiveArgs);
                 toolCalls.push(toolName);
-                await emit("TOOL_CALL_POST", JSON.stringify(result));
+                await emit({
+                    eventType: EventType.TOOL_CALL_POST,
+                    content: "tool invocation completed",
+                    sessionToolCalls: toolCalls,
+                    metadata: {
+                        ...baseMetadata,
+                        ...decisionToMetadata(outcome.decision),
+                        event_phase: "post",
+                        duration_ms: Date.now() - start,
+                        result_type: result === null ? "null" : typeof result,
+                        result_size_bytes: payloadSizeBytes(result),
+                    },
+                });
                 return result;
             };
             wrapped = wrappedAsync;

@@ -11,6 +11,7 @@ export declare enum SourceType {
 export declare enum EventType {
     TOOL_CALL_PRE = "TOOL_CALL_PRE",
     TOOL_CALL_POST = "TOOL_CALL_POST",
+    TOOL_CALL_BLOCK = "TOOL_CALL_BLOCK",
     LLM_INVOCATION = "LLM_INVOCATION"
 }
 export declare enum DecisionType {
@@ -26,6 +27,7 @@ export interface BehavioralEvent {
     agentId?: string;
     sessionId: string;
     toolName?: string;
+    violationId?: string;
     userId: string;
     sourceType: SourceType;
     eventType: EventType;
@@ -82,11 +84,22 @@ export interface ThothConfig {
 }
 export interface EnforcementDecision {
     decision: DecisionType;
+    authorizationDecision?: string;
     decisionReasonCode?: string;
     actionClassification?: string;
     reason?: string;
     violationId?: string;
     holdToken?: string;
+    riskScore?: number;
+    latencyMs?: number;
+    packId?: string;
+    packVersion?: string;
+    ruleVersion?: number;
+    regulatoryRegimes?: string[];
+    matchedRuleIds?: string[];
+    matchedControlIds?: string[];
+    policyReferences?: string[];
+    modelSignals?: string[];
     receipt?: Record<string, unknown>;
     modifiedToolArgs?: Record<string, unknown>;
     modificationReason?: string;
@@ -98,6 +111,39 @@ export declare class ThothPolicyViolation extends Error {
     readonly toolName: string;
     readonly reason: string;
     readonly violationId?: string | undefined;
-    constructor(toolName: string, reason: string, violationId?: string | undefined);
+    readonly decisionReasonCode?: string;
+    readonly actionClassification?: string;
+    readonly authorizationDecision?: string;
+    readonly deferTimeoutSeconds?: number;
+    readonly stepUpTimeoutSeconds?: number;
+    readonly riskScore?: number;
+    readonly latencyMs?: number;
+    readonly packId?: string;
+    readonly packVersion?: string;
+    readonly ruleVersion?: number;
+    readonly regulatoryRegimes?: string[];
+    readonly matchedRuleIds?: string[];
+    readonly matchedControlIds?: string[];
+    readonly policyReferences?: string[];
+    readonly modelSignals?: string[];
+    readonly receipt?: Record<string, unknown>;
+    constructor(toolName: string, reason: string, violationId?: string | undefined, options?: {
+        decisionReasonCode?: string;
+        actionClassification?: string;
+        authorizationDecision?: string;
+        deferTimeoutSeconds?: number;
+        stepUpTimeoutSeconds?: number;
+        riskScore?: number;
+        latencyMs?: number;
+        packId?: string;
+        packVersion?: string;
+        ruleVersion?: number;
+        regulatoryRegimes?: string[];
+        matchedRuleIds?: string[];
+        matchedControlIds?: string[];
+        policyReferences?: string[];
+        modelSignals?: string[];
+        receipt?: Record<string, unknown>;
+    });
 }
 //# sourceMappingURL=models.d.ts.map

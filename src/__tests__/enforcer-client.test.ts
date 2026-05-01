@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import {
   awaitStepUpDecision,
   checkEnforce,
@@ -19,6 +22,19 @@ function buildConfig(overrides: Record<string, unknown> = {}) {
     environment: "prod",
     ...overrides,
   } as any;
+}
+
+function loadGoldenFixture(name: string): Record<string, unknown> {
+  const testDir = dirname(fileURLToPath(import.meta.url));
+  const fixturePath = join(
+    testDir,
+    "../../../../../testdata/sdk/enforcement_decision_golden.json",
+  );
+  const parsed = JSON.parse(readFileSync(fixturePath, "utf-8")) as Record<
+    string,
+    Record<string, unknown>
+  >;
+  return parsed[name];
 }
 
 describe("enforcer-client response mapping", () => {
@@ -120,6 +136,38 @@ describe("enforcer-client response mapping", () => {
     expect(decision.decisionReasonCode).toBe("policy_scope_violation");
     expect(decision.actionClassification).toBe("write");
     expect(decision.receipt).toEqual({ signature: "sig-xyz" });
+  });
+
+  it("maps expanded decision telemetry and policy context fields", async () => {
+    const golden = loadGoldenFixture("block_full_context");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(golden),
+      }),
+    );
+
+    const decision = await checkEnforce(
+      buildConfig(),
+      "write:file",
+      "sess_1",
+      ["write:file"],
+    );
+
+    expect(decision.riskScore).toBe(93.7);
+    expect(decision.latencyMs).toBe(15.4);
+    expect(decision.packId).toBe("security-engineering");
+    expect(decision.packVersion).toBe("2026.05.01");
+    expect(decision.ruleVersion).toBe(7);
+    expect(decision.regulatoryRegimes).toEqual(["soc2", "hipaa"]);
+    expect(decision.matchedRuleIds).toEqual(["rule-openclaw-001"]);
+    expect(decision.matchedControlIds).toEqual(["cc6.1", "cc7.2"]);
+    expect(decision.policyReferences).toEqual(["SOC2 CC6.1", "SOC2 CC7.2"]);
+    expect(decision.modelSignals).toEqual([
+      "moses_action:block",
+      "classification:write",
+    ]);
   });
 
   it("sends default identity_binding when custom binding is not provided", async () => {

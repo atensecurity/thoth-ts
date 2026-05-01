@@ -74,6 +74,106 @@ describe("instrument()", () => {
         });
         await expect(agent.tools[0].run()).rejects.toThrow(ThothPolicyViolation);
     });
+    it("emits structured PRE/POST tool telemetry metadata", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockImplementation((url) => {
+            if (url.includes("/v1/enforce")) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ decision: "ALLOW" }),
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                status: 202,
+                text: () => Promise.resolve(""),
+            });
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+            apiKey: "aten_test_key",
+            environment: "dev",
+            enforcementTraceId: "trace-telemetry-1",
+        });
+        await agent.tools[0].run({ path: "/tmp/demo.txt" });
+        const eventCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/v1/events/batch"));
+        const events = eventCalls.flatMap((call) => {
+            const init = (call[1] ?? {});
+            const body = JSON.parse(String(init.body ?? "{}"));
+            return body.events ?? [];
+        });
+        const pre = events.find((event) => event.eventType === "TOOL_CALL_PRE");
+        const post = events.find((event) => event.eventType === "TOOL_CALL_POST");
+        expect(pre).toBeTruthy();
+        expect(post).toBeTruthy();
+        expect(pre.metadata.event_phase).toBe("pre");
+        expect(pre.metadata.sdk_language).toBe("typescript");
+        expect(pre.metadata.enforcement_trace_id).toBe("trace-telemetry-1");
+        expect(pre.metadata.tool_call.name).toBe("read:data");
+        expect(post.metadata.event_phase).toBe("post");
+        expect(post.metadata.authorization_decision).toBe("ALLOW");
+        expect(typeof post.metadata.duration_ms).toBe("number");
+        expect(typeof post.metadata.result_size_bytes).toBe("number");
+    });
+    it("emits TOOL_CALL_BLOCK metadata and carries reason fields on violations", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockImplementation((url) => {
+            if (url.includes("/v1/enforce")) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        decision: "BLOCK",
+                        reason: "denied by static policy",
+                        decision_reason_code: "forbidden_action_static_policy",
+                        action_classification: "read",
+                        violation_id: "vio-123",
+                        risk_score: 88.2,
+                        pack_id: "engineering",
+                        model_signals: ["moses_action:block"],
+                    }),
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                status: 202,
+                text: () => Promise.resolve(""),
+            });
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+            apiKey: "aten_test_key",
+        });
+        await expect(agent.tools[0].run("arg")).rejects.toMatchObject({
+            decisionReasonCode: "forbidden_action_static_policy",
+            actionClassification: "read",
+            violationId: "vio-123",
+            riskScore: 88.2,
+            packId: "engineering",
+            modelSignals: ["moses_action:block"],
+        });
+        const eventCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/v1/events/batch"));
+        const events = eventCalls.flatMap((call) => {
+            const init = (call[1] ?? {});
+            const body = JSON.parse(String(init.body ?? "{}"));
+            return body.events ?? [];
+        });
+        const block = events.find((event) => event.eventType === "TOOL_CALL_BLOCK");
+        expect(block).toBeTruthy();
+        expect(block.metadata.event_phase).toBe("block");
+        expect(block.metadata.authorization_decision).toBe("BLOCK");
+        expect(block.metadata.decision_reason_code).toBe("forbidden_action_static_policy");
+        expect(block.metadata.risk_score).toBe(88.2);
+        expect(block.metadata.pack_id).toBe("engineering");
+        expect(block.metadata.model_signals).toEqual(["moses_action:block"]);
+    });
     it("applies modified args when decision is MODIFY", async () => {
         const agent = new FakeAgent();
         vi.stubGlobal("fetch", vi.fn().mockResolvedValue({

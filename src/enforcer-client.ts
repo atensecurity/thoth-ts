@@ -139,6 +139,17 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return normalized.length > 0 ? normalized : [];
+}
+
 function toEnforcementDecision(payload: unknown): EnforcementDecision {
   const record = readRecord(payload);
   const decision = parseDecision(
@@ -147,6 +158,9 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
   if (!decision) return FALLBACK;
   return {
     decision,
+    authorizationDecision: readText(
+      record.authorization_decision ?? record.authorizationDecision,
+    ),
     decisionReasonCode: readText(
       record.decision_reason_code ?? record.decisionReasonCode,
     ),
@@ -159,6 +173,24 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
       readText(record.modification_reason ?? record.modificationReason),
     violationId: readText(record.violation_id ?? record.violationId),
     holdToken: readText(record.hold_token ?? record.holdToken),
+    riskScore: readNumber(record.risk_score ?? record.riskScore),
+    latencyMs: readNumber(record.latency_ms ?? record.latencyMs),
+    packId: readText(record.pack_id ?? record.packId),
+    packVersion: readText(record.pack_version ?? record.packVersion),
+    ruleVersion: readNumber(record.rule_version ?? record.ruleVersion),
+    regulatoryRegimes: readStringArray(
+      record.regulatory_regimes ?? record.regulatoryRegimes,
+    ),
+    matchedRuleIds: readStringArray(
+      record.matched_rule_ids ?? record.matchedRuleIds,
+    ),
+    matchedControlIds: readStringArray(
+      record.matched_control_ids ?? record.matchedControlIds,
+    ),
+    policyReferences: readStringArray(
+      record.policy_references ?? record.policyReferences,
+    ),
+    modelSignals: readStringArray(record.model_signals ?? record.modelSignals),
     receipt:
       record.receipt && typeof record.receipt === "object"
         ? (record.receipt as Record<string, unknown>)

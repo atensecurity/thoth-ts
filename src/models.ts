@@ -13,6 +13,7 @@ export enum SourceType {
 export enum EventType {
   TOOL_CALL_PRE = "TOOL_CALL_PRE",
   TOOL_CALL_POST = "TOOL_CALL_POST",
+  TOOL_CALL_BLOCK = "TOOL_CALL_BLOCK",
   LLM_INVOCATION = "LLM_INVOCATION",
 }
 
@@ -30,6 +31,7 @@ export interface BehavioralEvent {
   agentId?: string;
   sessionId: string;
   toolName?: string;
+  violationId?: string;
   userId: string;
   sourceType: SourceType;
   eventType: EventType;
@@ -88,11 +90,22 @@ export interface ThothConfig {
 
 export interface EnforcementDecision {
   decision: DecisionType;
+  authorizationDecision?: string;
   decisionReasonCode?: string;
   actionClassification?: string;
   reason?: string;
   violationId?: string;
   holdToken?: string;
+  riskScore?: number;
+  latencyMs?: number;
+  packId?: string;
+  packVersion?: string;
+  ruleVersion?: number;
+  regulatoryRegimes?: string[];
+  matchedRuleIds?: string[];
+  matchedControlIds?: string[];
+  policyReferences?: string[];
+  modelSignals?: string[];
   receipt?: Record<string, unknown>;
   modifiedToolArgs?: Record<string, unknown>;
   modificationReason?: string;
@@ -102,12 +115,63 @@ export interface EnforcementDecision {
 }
 
 export class ThothPolicyViolation extends Error {
+  public readonly decisionReasonCode?: string;
+  public readonly actionClassification?: string;
+  public readonly authorizationDecision?: string;
+  public readonly deferTimeoutSeconds?: number;
+  public readonly stepUpTimeoutSeconds?: number;
+  public readonly riskScore?: number;
+  public readonly latencyMs?: number;
+  public readonly packId?: string;
+  public readonly packVersion?: string;
+  public readonly ruleVersion?: number;
+  public readonly regulatoryRegimes?: string[];
+  public readonly matchedRuleIds?: string[];
+  public readonly matchedControlIds?: string[];
+  public readonly policyReferences?: string[];
+  public readonly modelSignals?: string[];
+  public readonly receipt?: Record<string, unknown>;
+
   constructor(
     public readonly toolName: string,
     public readonly reason: string,
     public readonly violationId?: string,
+    options: {
+      decisionReasonCode?: string;
+      actionClassification?: string;
+      authorizationDecision?: string;
+      deferTimeoutSeconds?: number;
+      stepUpTimeoutSeconds?: number;
+      riskScore?: number;
+      latencyMs?: number;
+      packId?: string;
+      packVersion?: string;
+      ruleVersion?: number;
+      regulatoryRegimes?: string[];
+      matchedRuleIds?: string[];
+      matchedControlIds?: string[];
+      policyReferences?: string[];
+      modelSignals?: string[];
+      receipt?: Record<string, unknown>;
+    } = {},
   ) {
     super(`Thoth blocked tool '${toolName}': ${reason}`);
     this.name = "ThothPolicyViolation";
+    this.decisionReasonCode = options.decisionReasonCode;
+    this.actionClassification = options.actionClassification;
+    this.authorizationDecision = options.authorizationDecision;
+    this.deferTimeoutSeconds = options.deferTimeoutSeconds;
+    this.stepUpTimeoutSeconds = options.stepUpTimeoutSeconds;
+    this.riskScore = options.riskScore;
+    this.latencyMs = options.latencyMs;
+    this.packId = options.packId;
+    this.packVersion = options.packVersion;
+    this.ruleVersion = options.ruleVersion;
+    this.regulatoryRegimes = options.regulatoryRegimes;
+    this.matchedRuleIds = options.matchedRuleIds;
+    this.matchedControlIds = options.matchedControlIds;
+    this.policyReferences = options.policyReferences;
+    this.modelSignals = options.modelSignals;
+    this.receipt = options.receipt;
   }
 }
