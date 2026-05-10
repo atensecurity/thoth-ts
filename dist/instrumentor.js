@@ -7,7 +7,7 @@ const DEFAULT_ENVIRONMENT = ((typeof process !== "undefined" &&
     .trim()
     .toLowerCase();
 const DEFAULTS = {
-    enforcement: EnforcementMode.PROGRESSIVE,
+    enforcement: EnforcementMode.BLOCK,
     apiKey: (typeof process !== "undefined" && process.env?.THOTH_API_KEY) || undefined,
     userId: "system",
     stepUpTimeoutMinutes: 15,
@@ -264,6 +264,17 @@ function baseToolEventMetadata(toolName, args, cfg, enforcementTraceId) {
         sdk_language: "typescript",
         environment: cfg.environment,
         enforcement_trace_id: enforcementTraceId,
+        ...(cfg.purpose !== undefined ? { purpose: cfg.purpose } : {}),
+        ...(cfg.purpose !== undefined ? { purpose_context: cfg.purpose } : {}),
+        ...(cfg.dataClassification !== undefined
+            ? { data_classification: cfg.dataClassification }
+            : {}),
+        ...(cfg.taskContext !== undefined
+            ? {
+                task_context: cfg.taskContext,
+                delegation_context: cfg.taskContext,
+            }
+            : {}),
         tool_call: {
             name: toolName,
             arguments: toolArgs,
@@ -403,6 +414,24 @@ export function instrument(agent, config) {
         agentId: cfg.agentId,
         tenantId: cfg.tenantId,
         sessionId,
+        purpose: cfg.purpose,
+        dataClassification: cfg.dataClassification,
+        taskContext: cfg.taskContext,
+        initiatedBy: typeof cfg.taskContext?.["initiated_by"] === "string"
+            ? cfg.taskContext["initiated_by"]
+            : typeof cfg.taskContext?.["initiatedBy"] === "string"
+                ? cfg.taskContext["initiatedBy"]
+                : undefined,
+        taskId: typeof cfg.taskContext?.["task_id"] === "string"
+            ? cfg.taskContext["task_id"]
+            : typeof cfg.taskContext?.["taskId"] === "string"
+                ? cfg.taskContext["taskId"]
+                : undefined,
+        delegationChain: Array.isArray(cfg.taskContext?.["chain"])
+            ? (cfg.taskContext?.["chain"])
+                .map((item) => String(item).trim())
+                .filter((item) => item.length > 0)
+            : undefined,
         toolName: "thoth_sdk",
         occurredAt: new Date(),
         content: "thoth_sdk_session_start",
@@ -414,6 +443,17 @@ export function instrument(agent, config) {
         metadata: {
             enforcement_trace_id: enforcementTraceId,
             environment: cfg.environment,
+            ...(cfg.purpose !== undefined ? { purpose: cfg.purpose } : {}),
+            ...(cfg.purpose !== undefined ? { purpose_context: cfg.purpose } : {}),
+            ...(cfg.dataClassification !== undefined
+                ? { data_classification: cfg.dataClassification }
+                : {}),
+            ...(cfg.taskContext !== undefined
+                ? {
+                    task_context: cfg.taskContext,
+                    delegation_context: cfg.taskContext,
+                }
+                : {}),
         },
     };
     void emitBehavioralEvent(llmInvocationEvent, cfg.apiUrl, cfg.apiKey ?? "").catch(() => undefined);
@@ -521,6 +561,24 @@ export function instrument(agent, config) {
                 agentId: cfg.agentId,
                 tenantId: cfg.tenantId,
                 sessionId,
+                purpose: cfg.purpose,
+                dataClassification: cfg.dataClassification,
+                taskContext: cfg.taskContext,
+                initiatedBy: typeof cfg.taskContext?.["initiated_by"] === "string"
+                    ? cfg.taskContext["initiated_by"]
+                    : typeof cfg.taskContext?.["initiatedBy"] === "string"
+                        ? cfg.taskContext["initiatedBy"]
+                        : undefined,
+                taskId: typeof cfg.taskContext?.["task_id"] === "string"
+                    ? cfg.taskContext["task_id"]
+                    : typeof cfg.taskContext?.["taskId"] === "string"
+                        ? cfg.taskContext["taskId"]
+                        : undefined,
+                delegationChain: Array.isArray(cfg.taskContext?.["chain"])
+                    ? (cfg.taskContext?.["chain"])
+                        .map((item) => String(item).trim())
+                        .filter((item) => item.length > 0)
+                    : undefined,
                 toolName,
                 occurredAt: new Date(),
                 content,

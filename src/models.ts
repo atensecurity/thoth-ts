@@ -30,6 +30,12 @@ export interface BehavioralEvent {
   tenantId: string;
   agentId?: string;
   sessionId: string;
+  purpose?: string;
+  dataClassification?: string;
+  taskContext?: Record<string, unknown>;
+  initiatedBy?: string;
+  taskId?: string;
+  delegationChain?: string[];
   toolName?: string;
   violationId?: string;
   userId: string;
@@ -81,6 +87,18 @@ export interface ThothConfig {
    * Defaults to the instrumented session UUID when omitted.
    */
   enforcementTraceId?: string;
+  /**
+   * Optional purpose context for purpose/sensitivity governance.
+   */
+  purpose?: string;
+  /**
+   * Optional data sensitivity label for purpose/sensitivity governance.
+   */
+  dataClassification?: string;
+  /**
+   * Optional task/delegation context (initiatedBy, taskId, chain).
+   */
+  taskContext?: Record<string, unknown>;
   /**
    * Environment tag used for env-scoped policy resolution ("dev", "prod", ...).
    * Defaults to "prod".

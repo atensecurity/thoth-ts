@@ -70,7 +70,7 @@ const governed = instrument(agent, {
   tenantId: "your-tenant-id",
   apiUrl: process.env.THOTH_API_URL!, // required if THOTH_API_URL is not set
   userId: "alice@example.com",
-  enforcement: "progressive", // observe | step_up | block | progressive
+  enforcement: "block", // default is "block"; options: observe | step_up | block | progressive
   // apiKey reads from THOTH_API_KEY env var automatically
 });
 
@@ -326,7 +326,7 @@ All options are passed as the second argument to `instrument()`, `wrapAnthropicT
 | `approvedScope`        | `string[]`                  | Yes      | —                | List of tool names this agent is authorized to call.                           |
 | `apiUrl`               | `string`                    | Yes\*    | `$THOTH_API_URL` | Tenant API base URL used for both `/v1/enforce` and `/v1/events/batch`.        |
 | `userId`               | `string`                    | No       | `"system"`       | Identity of the user on whose behalf the agent acts.                           |
-| `enforcement`          | `EnforcementMode \| string` | No       | `"progressive"`  | Enforcement mode: `observe`, `step_up`, `block`, or `progressive`.             |
+| `enforcement`          | `EnforcementMode \| string` | No       | `"block"`        | Enforcement mode: `observe`, `step_up`, `block`, or `progressive`.             |
 | `apiKey`               | `string`                    | No       | `$THOTH_API_KEY` | API key from the Aten dashboard.                                               |
 | `stepUpTimeoutMinutes` | `number`                    | No       | `15`             | How long to wait for human approval before timing out a step-up hold.          |
 | `stepUpPollIntervalMs` | `number`                    | No       | `5000`           | How often to poll the enforcer for step-up approval status (milliseconds).     |
@@ -410,7 +410,7 @@ When decision logging is enabled at debug level, SDK decision logs include `hold
 | Observe     | `observe`     | All tool calls pass through. Events are still emitted for audit. No blocking, no step-up. Use for initial rollout and baselining. |
 | Step-Up     | `step_up`     | Suspicious calls trigger a human approval request. Tool execution is held until approved or timed out.                            |
 | Block       | `block`       | Calls that violate policy throw `ThothPolicyViolation` immediately before the tool executes.                                      |
-| Progressive | `progressive` | Default. The enforcer chooses the appropriate response per tool call based on policy rules.                                       |
+| Progressive | `progressive` | Escalating mode. The enforcer chooses the appropriate response per tool call based on policy rules.                               |
 
 ---
 

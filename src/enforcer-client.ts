@@ -26,7 +26,12 @@ type EnforceConfig = Required<
 > &
   Pick<
     ThothConfig,
-    "sessionIntent" | "policyContext" | "enforcementTraceId"
+    | "sessionIntent"
+    | "policyContext"
+    | "enforcementTraceId"
+    | "purpose"
+    | "dataClassification"
+    | "taskContext"
   > &
   Pick<ThothConfig, "identityBinding">;
 
@@ -85,6 +90,15 @@ export async function checkEnforce(
         }),
         ...(config.sessionIntent !== undefined && {
           session_intent: config.sessionIntent,
+        }),
+        ...(config.purpose !== undefined && {
+          purpose: config.purpose,
+        }),
+        ...(config.dataClassification !== undefined && {
+          data_classification: config.dataClassification,
+        }),
+        ...(config.taskContext !== undefined && {
+          task_context: config.taskContext,
         }),
       }),
       signal: AbortSignal.timeout(5000),

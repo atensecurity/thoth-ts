@@ -602,6 +602,13 @@ describe("instrument()", () => {
         role: "billing_agent",
       },
       enforcementTraceId: "trace-test-123",
+      purpose: "customer-facing",
+      dataClassification: "internal",
+      taskContext: {
+        initiated_by: "human:security-lead@example.com",
+        task_id: "T-412",
+        chain: ["orchestrator-agent", "security-analyst-agent"],
+      },
     });
 
     await agent.tools[0].run({ mrn: "123456", request: "eligibility_check" });
@@ -624,6 +631,9 @@ describe("instrument()", () => {
       role: "billing_agent",
     });
     expect(body.enforcement_trace_id).toBe("trace-test-123");
+    expect(body.purpose).toBe("customer-facing");
+    expect(body.data_classification).toBe("internal");
+    expect(body.task_context.task_id).toBe("T-412");
   });
 
   it("throws when apiUrl is missing and THOTH_API_URL is unset", () => {

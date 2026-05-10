@@ -20,7 +20,7 @@ const DEFAULT_ENVIRONMENT = (
   .toLowerCase();
 
 const DEFAULTS = {
-  enforcement: EnforcementMode.PROGRESSIVE,
+  enforcement: EnforcementMode.BLOCK,
   apiKey:
     (typeof process !== "undefined" && process.env?.THOTH_API_KEY) || undefined,
   userId: "system",
@@ -378,6 +378,17 @@ function baseToolEventMetadata(
     sdk_language: "typescript",
     environment: cfg.environment,
     enforcement_trace_id: enforcementTraceId,
+    ...(cfg.purpose !== undefined ? { purpose: cfg.purpose } : {}),
+    ...(cfg.purpose !== undefined ? { purpose_context: cfg.purpose } : {}),
+    ...(cfg.dataClassification !== undefined
+      ? { data_classification: cfg.dataClassification }
+      : {}),
+    ...(cfg.taskContext !== undefined
+      ? {
+          task_context: cfg.taskContext,
+          delegation_context: cfg.taskContext,
+        }
+      : {}),
     tool_call: {
       name: toolName,
       arguments: toolArgs,
@@ -530,6 +541,26 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
     agentId: cfg.agentId,
     tenantId: cfg.tenantId,
     sessionId,
+    purpose: cfg.purpose,
+    dataClassification: cfg.dataClassification,
+    taskContext: cfg.taskContext,
+    initiatedBy:
+      typeof cfg.taskContext?.["initiated_by"] === "string"
+        ? (cfg.taskContext["initiated_by"] as string)
+        : typeof cfg.taskContext?.["initiatedBy"] === "string"
+          ? (cfg.taskContext["initiatedBy"] as string)
+          : undefined,
+    taskId:
+      typeof cfg.taskContext?.["task_id"] === "string"
+        ? (cfg.taskContext["task_id"] as string)
+        : typeof cfg.taskContext?.["taskId"] === "string"
+          ? (cfg.taskContext["taskId"] as string)
+          : undefined,
+    delegationChain: Array.isArray(cfg.taskContext?.["chain"])
+      ? (cfg.taskContext?.["chain"] as unknown[])
+          .map((item) => String(item).trim())
+          .filter((item) => item.length > 0)
+      : undefined,
     toolName: "thoth_sdk",
     occurredAt: new Date(),
     content: "thoth_sdk_session_start",
@@ -541,6 +572,17 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
     metadata: {
       enforcement_trace_id: enforcementTraceId,
       environment: cfg.environment,
+      ...(cfg.purpose !== undefined ? { purpose: cfg.purpose } : {}),
+      ...(cfg.purpose !== undefined ? { purpose_context: cfg.purpose } : {}),
+      ...(cfg.dataClassification !== undefined
+        ? { data_classification: cfg.dataClassification }
+        : {}),
+      ...(cfg.taskContext !== undefined
+        ? {
+            task_context: cfg.taskContext,
+            delegation_context: cfg.taskContext,
+          }
+        : {}),
     },
   };
   void emitBehavioralEvent(llmInvocationEvent, cfg.apiUrl, cfg.apiKey ?? "").catch(
@@ -697,6 +739,26 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
         agentId: cfg.agentId,
         tenantId: cfg.tenantId,
         sessionId,
+        purpose: cfg.purpose,
+        dataClassification: cfg.dataClassification,
+        taskContext: cfg.taskContext,
+        initiatedBy:
+          typeof cfg.taskContext?.["initiated_by"] === "string"
+            ? (cfg.taskContext["initiated_by"] as string)
+            : typeof cfg.taskContext?.["initiatedBy"] === "string"
+              ? (cfg.taskContext["initiatedBy"] as string)
+              : undefined,
+        taskId:
+          typeof cfg.taskContext?.["task_id"] === "string"
+            ? (cfg.taskContext["task_id"] as string)
+            : typeof cfg.taskContext?.["taskId"] === "string"
+              ? (cfg.taskContext["taskId"] as string)
+              : undefined,
+        delegationChain: Array.isArray(cfg.taskContext?.["chain"])
+          ? (cfg.taskContext?.["chain"] as unknown[])
+              .map((item) => String(item).trim())
+              .filter((item) => item.length > 0)
+          : undefined,
         toolName,
         occurredAt: new Date(),
         content,

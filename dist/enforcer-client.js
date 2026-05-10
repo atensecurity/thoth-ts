@@ -53,6 +53,15 @@ export async function checkEnforce(config, toolName, sessionId, sessionToolCalls
                 ...(config.sessionIntent !== undefined && {
                     session_intent: config.sessionIntent,
                 }),
+                ...(config.purpose !== undefined && {
+                    purpose: config.purpose,
+                }),
+                ...(config.dataClassification !== undefined && {
+                    data_classification: config.dataClassification,
+                }),
+                ...(config.taskContext !== undefined && {
+                    task_context: config.taskContext,
+                }),
             }),
             signal: AbortSignal.timeout(5000),
         });
