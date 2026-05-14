@@ -1,4 +1,4 @@
-import { wrapAnthropicTools } from "./integrations/anthropic";
+import { wrapAnthropicTools, } from "./integrations/anthropic";
 import { wrapOpenAITools } from "./integrations/openai";
 import { instrument } from "./instrumentor";
 /**

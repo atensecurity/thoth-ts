@@ -165,13 +165,11 @@ function pendingSessionToolCalls(
   return [...toolCalls];
 }
 
-function buildDeferredReason(
-  decision: {
-    reason?: string;
-    deferReason?: string;
-    deferTimeoutSeconds?: number;
-  },
-): string {
+function buildDeferredReason(decision: {
+  reason?: string;
+  deferReason?: string;
+  deferTimeoutSeconds?: number;
+}): string {
   const base =
     decision.deferReason ??
     decision.reason ??
@@ -246,7 +244,9 @@ function applyModifiedArgs(
       const match = /^arg(\d+)$/.exec(key);
       return match ? { index: Number(match[1]), value } : null;
     })
-    .filter((entry): entry is { index: number; value: unknown } => entry !== null)
+    .filter(
+      (entry): entry is { index: number; value: unknown } => entry !== null,
+    )
     .sort((a, b) => a.index - b.index);
   if (
     indexed.length > 0 &&
@@ -349,7 +349,8 @@ function createPolicyViolation(
     {
       decisionReasonCode: decision.decisionReasonCode,
       actionClassification: decision.actionClassification,
-      authorizationDecision: decision.authorizationDecision ?? decision.decision,
+      authorizationDecision:
+        decision.authorizationDecision ?? decision.decision,
       deferTimeoutSeconds: decision.deferTimeoutSeconds,
       stepUpTimeoutSeconds: decision.stepUpTimeoutSeconds,
       riskScore: decision.riskScore,
@@ -401,7 +402,8 @@ function policyViolationMetadata(
   violation: ThothPolicyViolation,
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
-    authorization_decision: violation.authorizationDecision ?? DecisionType.BLOCK,
+    authorization_decision:
+      violation.authorizationDecision ?? DecisionType.BLOCK,
   };
   if (violation.decisionReasonCode) {
     metadata.decision_reason_code = violation.decisionReasonCode;
@@ -585,9 +587,11 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
         : {}),
     },
   };
-  void emitBehavioralEvent(llmInvocationEvent, cfg.apiUrl, cfg.apiKey ?? "").catch(
-    () => undefined,
-  );
+  void emitBehavioralEvent(
+    llmInvocationEvent,
+    cfg.apiUrl,
+    cfg.apiKey ?? "",
+  ).catch(() => undefined);
 
   for (const tool of tools) {
     const toolName: string = tool.name ?? String(tool);
@@ -648,7 +652,8 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
               ruleVersion: resolved.ruleVersion ?? decision.ruleVersion,
               regulatoryRegimes:
                 resolved.regulatoryRegimes ?? decision.regulatoryRegimes,
-              matchedRuleIds: resolved.matchedRuleIds ?? decision.matchedRuleIds,
+              matchedRuleIds:
+                resolved.matchedRuleIds ?? decision.matchedRuleIds,
               matchedControlIds:
                 resolved.matchedControlIds ?? decision.matchedControlIds,
               policyReferences:

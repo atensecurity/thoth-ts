@@ -2,10 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import {
-  awaitStepUpDecision,
-  checkEnforce,
-} from "../enforcer-client";
+import { awaitStepUpDecision, checkEnforce } from "../enforcer-client";
 import { EnforcementMode } from "../models";
 
 function buildConfig(overrides: Record<string, unknown> = {}) {
@@ -53,12 +50,9 @@ describe("enforcer-client response mapping", () => {
       }),
     );
 
-    const decision = await checkEnforce(
-      buildConfig(),
+    const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", [
       "read:data",
-      "sess_1",
-      ["read:data"],
-    );
+    ]);
 
     expect(decision.decision).toBe("STEP_UP");
     expect(decision.holdToken).toBe("tok_123");
@@ -97,12 +91,9 @@ describe("enforcer-client response mapping", () => {
       }),
     );
 
-    const decision = await checkEnforce(
-      buildConfig(),
+    const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", [
       "read:data",
-      "sess_1",
-      ["read:data"],
-    );
+    ]);
 
     expect(decision.decision).toBe("MODIFY");
     expect(decision.modificationReason).toBe("path normalized");
@@ -125,12 +116,9 @@ describe("enforcer-client response mapping", () => {
       }),
     );
 
-    const decision = await checkEnforce(
-      buildConfig(),
+    const decision = await checkEnforce(buildConfig(), "write:file", "sess_1", [
       "write:file",
-      "sess_1",
-      ["write:file"],
-    );
+    ]);
 
     expect(decision.decision).toBe("BLOCK");
     expect(decision.decisionReasonCode).toBe("policy_scope_violation");
@@ -148,12 +136,9 @@ describe("enforcer-client response mapping", () => {
       }),
     );
 
-    const decision = await checkEnforce(
-      buildConfig(),
+    const decision = await checkEnforce(buildConfig(), "write:file", "sess_1", [
       "write:file",
-      "sess_1",
-      ["write:file"],
-    );
+    ]);
 
     expect(decision.riskScore).toBe(93.7);
     expect(decision.latencyMs).toBe(15.4);

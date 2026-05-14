@@ -36,9 +36,15 @@ type EnforceConfig = Required<
   Pick<ThothConfig, "identityBinding">;
 
 function defaultIdentityBinding(
-  config: Pick<ThothConfig, "agentId" | "tenantId" | "userId" | "identityBinding">,
+  config: Pick<
+    ThothConfig,
+    "agentId" | "tenantId" | "userId" | "identityBinding"
+  >,
 ): Record<string, unknown> {
-  if (config.identityBinding && Object.keys(config.identityBinding).length > 0) {
+  if (
+    config.identityBinding &&
+    Object.keys(config.identityBinding).length > 0
+  ) {
     return { ...config.identityBinding };
   }
   const binding: Record<string, unknown> = {
@@ -127,10 +133,19 @@ function parseDecision(value: unknown): DecisionType | null {
   const key = value.trim().toUpperCase();
   if (key === DecisionType.ALLOW) return DecisionType.ALLOW;
   if (key === DecisionType.BLOCK || key === "DENY") return DecisionType.BLOCK;
-  if (key === DecisionType.STEP_UP || key === "CHALLENGE" || key === "ESCALATE" || key === "REVIEW") {
+  if (
+    key === DecisionType.STEP_UP ||
+    key === "CHALLENGE" ||
+    key === "ESCALATE" ||
+    key === "REVIEW"
+  ) {
     return DecisionType.STEP_UP;
   }
-  if (key === DecisionType.MODIFY || key === "MODIFIED" || key === "TRANSFORM") {
+  if (
+    key === DecisionType.MODIFY ||
+    key === "MODIFIED" ||
+    key === "TRANSFORM"
+  ) {
     return DecisionType.MODIFY;
   }
   if (key === DecisionType.DEFER || key === "DEFERRED" || key === "HOLD") {
@@ -150,7 +165,9 @@ function readText(value: unknown): string | undefined {
 }
 
 function readNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function readStringArray(value: unknown): string[] | undefined {
@@ -167,7 +184,9 @@ function readStringArray(value: unknown): string[] | undefined {
 function toEnforcementDecision(payload: unknown): EnforcementDecision {
   const record = readRecord(payload);
   const decision = parseDecision(
-    record.authorization_decision ?? record.authorizationDecision ?? record.decision,
+    record.authorization_decision ??
+      record.authorizationDecision ??
+      record.decision,
   );
   if (!decision) return FALLBACK;
   return {
@@ -276,7 +295,11 @@ export async function awaitStepUpDecision(
         return directDecision;
       }
     } catch (error) {
-      console.error("thoth: step-up poll failure for hold_token=%s:", holdToken, error);
+      console.error(
+        "thoth: step-up poll failure for hold_token=%s:",
+        holdToken,
+        error,
+      );
     }
 
     await sleep(config.stepUpPollIntervalMs);

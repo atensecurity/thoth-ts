@@ -392,11 +392,11 @@ up automatically.
 
 ## Environment Variables
 
-| Variable        | Description                                                                                      | Example                                  |
-| --------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| `THOTH_API_KEY` | API key from the Aten dashboard. Used as default if `apiKey` config option is not set.           | `thoth_live_abc123...`                   |
-| `THOTH_API_URL` | Tenant API base URL used for both enforcement and event ingestion when `apiUrl` is not provided. | `https://enforce.<tenant>.<apex-domain>` |
-| `THOTH_LOG_LEVEL` | Optional SDK decision-log level override (`DEBUG`, `INFO`, `WARN`, `ERROR`). Falls back to `LOG_LEVEL` when unset. | `DEBUG` |
+| Variable          | Description                                                                                                        | Example                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| `THOTH_API_KEY`   | API key from the Aten dashboard. Used as default if `apiKey` config option is not set.                             | `thoth_live_abc123...`                   |
+| `THOTH_API_URL`   | Tenant API base URL used for both enforcement and event ingestion when `apiUrl` is not provided.                   | `https://enforce.<tenant>.<apex-domain>` |
+| `THOTH_LOG_LEVEL` | Optional SDK decision-log level override (`DEBUG`, `INFO`, `WARN`, `ERROR`). Falls back to `LOG_LEVEL` when unset. | `DEBUG`                                  |
 
 When decision logging is enabled at debug level, SDK decision logs include `hold_token` for
 `STEP_UP` flows.

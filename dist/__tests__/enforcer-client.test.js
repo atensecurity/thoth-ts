@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { awaitStepUpDecision, checkEnforce, } from "../enforcer-client";
+import { awaitStepUpDecision, checkEnforce } from "../enforcer-client";
 import { EnforcementMode } from "../models";
 function buildConfig(overrides = {}) {
     return {
@@ -36,7 +36,9 @@ describe("enforcer-client response mapping", () => {
                 reason: "requires approval",
             }),
         }));
-        const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", ["read:data"]);
+        const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", [
+            "read:data",
+        ]);
         expect(decision.decision).toBe("STEP_UP");
         expect(decision.holdToken).toBe("tok_123");
         expect(decision.violationId).toBe("vio_123");
@@ -62,7 +64,9 @@ describe("enforcer-client response mapping", () => {
                 modified_tool_args: { path: "/tmp/safe.txt" },
             }),
         }));
-        const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", ["read:data"]);
+        const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", [
+            "read:data",
+        ]);
         expect(decision.decision).toBe("MODIFY");
         expect(decision.modificationReason).toBe("path normalized");
         expect(decision.modifiedToolArgs).toEqual({ path: "/tmp/safe.txt" });
@@ -78,7 +82,9 @@ describe("enforcer-client response mapping", () => {
                 receipt: { signature: "sig-xyz" },
             }),
         }));
-        const decision = await checkEnforce(buildConfig(), "write:file", "sess_1", ["write:file"]);
+        const decision = await checkEnforce(buildConfig(), "write:file", "sess_1", [
+            "write:file",
+        ]);
         expect(decision.decision).toBe("BLOCK");
         expect(decision.decisionReasonCode).toBe("policy_scope_violation");
         expect(decision.actionClassification).toBe("write");
@@ -90,7 +96,9 @@ describe("enforcer-client response mapping", () => {
             ok: true,
             json: () => Promise.resolve(golden),
         }));
-        const decision = await checkEnforce(buildConfig(), "write:file", "sess_1", ["write:file"]);
+        const decision = await checkEnforce(buildConfig(), "write:file", "sess_1", [
+            "write:file",
+        ]);
         expect(decision.riskScore).toBe(93.7);
         expect(decision.latencyMs).toBe(15.4);
         expect(decision.packId).toBe("security-engineering");

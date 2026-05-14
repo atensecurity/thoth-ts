@@ -1,4 +1,7 @@
-import { wrapAnthropicTools, type AnthropicToolFn } from "./integrations/anthropic";
+import {
+  wrapAnthropicTools,
+  type AnthropicToolFn,
+} from "./integrations/anthropic";
 import { wrapOpenAITools, type OpenAIToolFn } from "./integrations/openai";
 import { instrument } from "./instrumentor";
 import type { ThothConfig } from "./models";

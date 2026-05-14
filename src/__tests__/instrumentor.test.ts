@@ -117,8 +117,12 @@ describe("instrument()", () => {
       const body = JSON.parse(String(init.body ?? "{}"));
       return body.events ?? [];
     });
-    const pre = events.find((event: any) => event.eventType === "TOOL_CALL_PRE");
-    const post = events.find((event: any) => event.eventType === "TOOL_CALL_POST");
+    const pre = events.find(
+      (event: any) => event.eventType === "TOOL_CALL_PRE",
+    );
+    const post = events.find(
+      (event: any) => event.eventType === "TOOL_CALL_POST",
+    );
     expect(pre).toBeTruthy();
     expect(post).toBeTruthy();
     expect(pre.metadata.event_phase).toBe("pre");
@@ -518,7 +522,9 @@ describe("instrument()", () => {
     await agent.tools[0].run("arg");
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls).toContain("https://enforce.trantor.atensecurity.com/v1/enforce");
+    expect(urls).toContain(
+      "https://enforce.trantor.atensecurity.com/v1/enforce",
+    );
   });
 
   it("uses custom apiUrl for enforcement when apiKey is omitted", async () => {
@@ -539,7 +545,9 @@ describe("instrument()", () => {
     await agent.tools[0].run("arg");
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls).toContain("https://enforce.trantor.atensecurity.com/v1/enforce");
+    expect(urls).toContain(
+      "https://enforce.trantor.atensecurity.com/v1/enforce",
+    );
   });
 
   it("propagates custom environment to enforcer payload", async () => {

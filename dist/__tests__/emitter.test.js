@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EnforcementMode, EventType, SourceType } from "../models";
+import { EnforcementMode, EventType, SourceType, } from "../models";
 import { emitBehavioralEvent } from "../emitter";
 function sampleEvent() {
     return {
@@ -48,7 +48,9 @@ describe("emitBehavioralEvent", () => {
         expect(warnSpy.mock.calls[0]?.[0]).toContain("telemetry ingest rejected");
     });
     it("logs error and does not throw on fetch failure", async () => {
-        const fetchMock = vi.fn().mockRejectedValue(new Error("network unreachable"));
+        const fetchMock = vi
+            .fn()
+            .mockRejectedValue(new Error("network unreachable"));
         const errorSpy = vi.spyOn(console, "error").mockImplementation(() => { });
         vi.stubGlobal("fetch", fetchMock);
         await expect(emitBehavioralEvent(sampleEvent(), "https://enforce.trantor.atensecurity.com", "aten_thoth_dev_testkey")).resolves.toBeUndefined();

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { EnforcementMode, EventType, SourceType, type BehavioralEvent } from "../models";
+import {
+  EnforcementMode,
+  EventType,
+  SourceType,
+  type BehavioralEvent,
+} from "../models";
 import { emitBehavioralEvent } from "../emitter";
 
 function sampleEvent(): BehavioralEvent {
@@ -41,7 +46,9 @@ describe("emitBehavioralEvent", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://enforce.trantor.atensecurity.com/v1/events/batch");
+    expect(url).toBe(
+      "https://enforce.trantor.atensecurity.com/v1/events/batch",
+    );
     expect((init.headers as Record<string, string>).Authorization).toBe(
       "Bearer aten_thoth_dev_testkey",
     );
@@ -70,7 +77,9 @@ describe("emitBehavioralEvent", () => {
   });
 
   it("logs error and does not throw on fetch failure", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error("network unreachable"));
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValue(new Error("network unreachable"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal("fetch", fetchMock);
 

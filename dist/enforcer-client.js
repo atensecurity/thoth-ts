@@ -8,7 +8,8 @@ const STEP_UP_TIMEOUT = {
     reason: "step-up auth timeout — no approver response",
 };
 function defaultIdentityBinding(config) {
-    if (config.identityBinding && Object.keys(config.identityBinding).length > 0) {
+    if (config.identityBinding &&
+        Object.keys(config.identityBinding).length > 0) {
         return { ...config.identityBinding };
     }
     const binding = {
@@ -84,10 +85,15 @@ function parseDecision(value) {
         return DecisionType.ALLOW;
     if (key === DecisionType.BLOCK || key === "DENY")
         return DecisionType.BLOCK;
-    if (key === DecisionType.STEP_UP || key === "CHALLENGE" || key === "ESCALATE" || key === "REVIEW") {
+    if (key === DecisionType.STEP_UP ||
+        key === "CHALLENGE" ||
+        key === "ESCALATE" ||
+        key === "REVIEW") {
         return DecisionType.STEP_UP;
     }
-    if (key === DecisionType.MODIFY || key === "MODIFIED" || key === "TRANSFORM") {
+    if (key === DecisionType.MODIFY ||
+        key === "MODIFIED" ||
+        key === "TRANSFORM") {
         return DecisionType.MODIFY;
     }
     if (key === DecisionType.DEFER || key === "DEFERRED" || key === "HOLD") {
@@ -104,7 +110,9 @@ function readText(value) {
     return typeof value === "string" ? value : undefined;
 }
 function readNumber(value) {
-    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+    return typeof value === "number" && Number.isFinite(value)
+        ? value
+        : undefined;
 }
 function readStringArray(value) {
     if (!Array.isArray(value)) {
@@ -118,7 +126,9 @@ function readStringArray(value) {
 }
 function toEnforcementDecision(payload) {
     const record = readRecord(payload);
-    const decision = parseDecision(record.authorization_decision ?? record.authorizationDecision ?? record.decision);
+    const decision = parseDecision(record.authorization_decision ??
+        record.authorizationDecision ??
+        record.decision);
     if (!decision)
         return FALLBACK;
     return {
