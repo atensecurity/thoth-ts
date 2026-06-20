@@ -99,6 +99,11 @@ export interface ThothConfig {
      * Defaults to "prod".
      */
     environment?: string;
+    /**
+     * When true, transport/availability failures from the enforcer (timeouts,
+     * 429, 5xx) return ALLOW so workloads continue.
+     */
+    failOpen?: boolean;
 }
 export interface EnforcementDecision {
     decision: DecisionType;
@@ -124,6 +129,12 @@ export interface EnforcementDecision {
     deferReason?: string;
     deferTimeoutSeconds?: number;
     stepUpTimeoutSeconds?: number;
+    decisionEnvelopeVersion?: string;
+    enforcementTraceId?: string;
+    fastmlFeatures?: Record<string, number>;
+    scoreComponents?: Record<string, unknown>;
+    topContributors?: Record<string, unknown>[];
+    decisionEvidence?: Record<string, unknown>;
 }
 export declare class ThothPolicyViolation extends Error {
     readonly toolName: string;
@@ -145,6 +156,12 @@ export declare class ThothPolicyViolation extends Error {
     readonly policyReferences?: string[];
     readonly modelSignals?: string[];
     readonly receipt?: Record<string, unknown>;
+    readonly decisionEnvelopeVersion?: string;
+    readonly enforcementTraceId?: string;
+    readonly fastmlFeatures?: Record<string, number>;
+    readonly scoreComponents?: Record<string, unknown>;
+    readonly topContributors?: Record<string, unknown>[];
+    readonly decisionEvidence?: Record<string, unknown>;
     constructor(toolName: string, reason: string, violationId?: string | undefined, options?: {
         decisionReasonCode?: string;
         actionClassification?: string;
@@ -162,6 +179,12 @@ export declare class ThothPolicyViolation extends Error {
         policyReferences?: string[];
         modelSignals?: string[];
         receipt?: Record<string, unknown>;
+        decisionEnvelopeVersion?: string;
+        enforcementTraceId?: string;
+        fastmlFeatures?: Record<string, number>;
+        scoreComponents?: Record<string, unknown>;
+        topContributors?: Record<string, unknown>[];
+        decisionEvidence?: Record<string, unknown>;
     });
 }
 //# sourceMappingURL=models.d.ts.map

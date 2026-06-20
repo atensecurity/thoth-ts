@@ -17,6 +17,7 @@ function buildConfig(overrides: Record<string, unknown> = {}) {
     stepUpTimeoutMinutes: 1,
     stepUpPollIntervalMs: 1,
     environment: "prod",
+    failOpen: false,
     ...overrides,
   } as any;
 }
@@ -171,5 +172,58 @@ describe("enforcer-client response mapping", () => {
       tenant_id: "tenant_1",
       user_id: "system",
     });
+  });
+
+  it("allows on retryable status when failOpen is enabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+      }),
+    );
+
+    const decision = await checkEnforce(
+      buildConfig({ failOpen: true }),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+
+    expect(decision.decision).toBe("ALLOW");
+    expect(decision.reason).toContain("status=503");
+  });
+
+  it("allows on transport failure when failOpen is enabled", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("timeout")));
+
+    const decision = await checkEnforce(
+      buildConfig({ failOpen: true }),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+
+    expect(decision.decision).toBe("ALLOW");
+    expect(decision.reason).toContain("fail-open");
+  });
+
+  it("still blocks auth failures in failOpen mode", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+      }),
+    );
+
+    const decision = await checkEnforce(
+      buildConfig({ failOpen: true }),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+
+    expect(decision.decision).toBe("BLOCK");
   });
 });

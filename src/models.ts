@@ -104,6 +104,11 @@ export interface ThothConfig {
    * Defaults to "prod".
    */
   environment?: string;
+  /**
+   * When true, transport/availability failures from the enforcer (timeouts,
+   * 429, 5xx) return ALLOW so workloads continue.
+   */
+  failOpen?: boolean;
 }
 
 export interface EnforcementDecision {
@@ -130,6 +135,12 @@ export interface EnforcementDecision {
   deferReason?: string;
   deferTimeoutSeconds?: number;
   stepUpTimeoutSeconds?: number;
+  decisionEnvelopeVersion?: string;
+  enforcementTraceId?: string;
+  fastmlFeatures?: Record<string, number>;
+  scoreComponents?: Record<string, unknown>;
+  topContributors?: Record<string, unknown>[];
+  decisionEvidence?: Record<string, unknown>;
 }
 
 export class ThothPolicyViolation extends Error {
@@ -149,6 +160,13 @@ export class ThothPolicyViolation extends Error {
   public readonly policyReferences?: string[];
   public readonly modelSignals?: string[];
   public readonly receipt?: Record<string, unknown>;
+
+  public readonly decisionEnvelopeVersion?: string;
+  public readonly enforcementTraceId?: string;
+  public readonly fastmlFeatures?: Record<string, number>;
+  public readonly scoreComponents?: Record<string, unknown>;
+  public readonly topContributors?: Record<string, unknown>[];
+  public readonly decisionEvidence?: Record<string, unknown>;
 
   constructor(
     public readonly toolName: string,
@@ -171,6 +189,12 @@ export class ThothPolicyViolation extends Error {
       policyReferences?: string[];
       modelSignals?: string[];
       receipt?: Record<string, unknown>;
+      decisionEnvelopeVersion?: string;
+      enforcementTraceId?: string;
+      fastmlFeatures?: Record<string, number>;
+      scoreComponents?: Record<string, unknown>;
+      topContributors?: Record<string, unknown>[];
+      decisionEvidence?: Record<string, unknown>;
     } = {},
   ) {
     super(`Thoth blocked tool '${toolName}': ${reason}`);
@@ -191,5 +215,11 @@ export class ThothPolicyViolation extends Error {
     this.policyReferences = options.policyReferences;
     this.modelSignals = options.modelSignals;
     this.receipt = options.receipt;
+    this.decisionEnvelopeVersion = options.decisionEnvelopeVersion;
+    this.enforcementTraceId = options.enforcementTraceId;
+    this.fastmlFeatures = options.fastmlFeatures;
+    this.scoreComponents = options.scoreComponents;
+    this.topContributors = options.topContributors;
+    this.decisionEvidence = options.decisionEvidence;
   }
 }

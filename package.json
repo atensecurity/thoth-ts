@@ -1,6 +1,6 @@
 {
   "name": "@atensec/thoth",
-  "version": "0.1.18",
+  "version": "0.1.19-rc1",
   "author": "Aten Engineering <engineering@atensecurity.com>",
   "description": "AI agent governance SDK by Aten Security",
   "main": "./dist/index.js",
@@ -30,7 +30,7 @@
   "devDependencies": {
     "@types/node": "22.15.3",
     "typescript": "5.8.3",
-    "vitest": "2.1.9"
+    "vitest": "4.1.0"
   },
   "publishConfig": {
     "access": "public"

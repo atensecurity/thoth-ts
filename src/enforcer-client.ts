@@ -4,6 +4,10 @@ const FALLBACK: EnforcementDecision = {
   decision: DecisionType.BLOCK,
   reason: "enforcer unavailable",
 };
+const FAIL_OPEN_FALLBACK: EnforcementDecision = {
+  decision: DecisionType.ALLOW,
+  reason: "enforcer unavailable (fail-open)",
+};
 const STEP_UP_TIMEOUT: EnforcementDecision = {
   decision: DecisionType.BLOCK,
   reason: "step-up auth timeout — no approver response",
@@ -22,6 +26,7 @@ type EnforceConfig = Required<
     | "stepUpTimeoutMinutes"
     | "stepUpPollIntervalMs"
     | "environment"
+    | "failOpen"
   >
 > &
   Pick<
@@ -55,6 +60,10 @@ function defaultIdentityBinding(
     binding.user_id = config.userId;
   }
   return binding;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
 }
 
 export async function checkEnforce(
@@ -110,6 +119,17 @@ export async function checkEnforce(
       signal: AbortSignal.timeout(5000),
     });
     if (!resp.ok) {
+      if (config.failOpen && isRetryableStatus(resp.status)) {
+        console.warn(
+          "thoth: enforcer returned retryable status=%s, fail-open fallback to ALLOW (tool=%s)",
+          resp.status,
+          toolName,
+        );
+        return {
+          decision: DecisionType.ALLOW,
+          reason: `enforcer unavailable (status=${resp.status}, fail-open)`,
+        };
+      }
       console.error(
         "thoth: enforcer returned non-2xx, fail-closed fallback to BLOCK (status=%s tool=%s)",
         resp.status,
@@ -119,6 +139,14 @@ export async function checkEnforce(
     }
     return toEnforcementDecision(await resp.json());
   } catch (error) {
+    if (config.failOpen) {
+      console.warn(
+        "thoth: enforcer unreachable, fail-open fallback to ALLOW (tool=%s):",
+        toolName,
+        error,
+      );
+      return FAIL_OPEN_FALLBACK;
+    }
     console.error(
       "thoth: enforcer unreachable, fail-closed fallback to BLOCK (tool=%s):",
       toolName,
@@ -244,6 +272,39 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
     stepUpTimeoutSeconds: readNumber(
       record.step_up_timeout_seconds ?? record.stepUpTimeoutSeconds,
     ),
+    decisionEnvelopeVersion: readText(
+      record.decision_envelope_version ?? record.decisionEnvelopeVersion,
+    ),
+    enforcementTraceId: readText(
+      record.enforcement_trace_id ?? record.enforcementTraceId,
+    ),
+    fastmlFeatures:
+      record.fastml_features &&
+      typeof record.fastml_features === "object" &&
+      !Array.isArray(record.fastml_features)
+        ? (record.fastml_features as Record<string, number>)
+        : record.fastmlFeatures &&
+            typeof record.fastmlFeatures === "object" &&
+            !Array.isArray(record.fastmlFeatures)
+          ? (record.fastmlFeatures as Record<string, number>)
+          : undefined,
+    scoreComponents:
+      record.score_components && typeof record.score_components === "object"
+        ? (record.score_components as Record<string, unknown>)
+        : record.scoreComponents && typeof record.scoreComponents === "object"
+          ? (record.scoreComponents as Record<string, unknown>)
+          : undefined,
+    topContributors: Array.isArray(record.top_contributors)
+      ? (record.top_contributors as Record<string, unknown>[])
+      : Array.isArray(record.topContributors)
+        ? (record.topContributors as Record<string, unknown>[])
+        : undefined,
+    decisionEvidence:
+      record.decision_evidence && typeof record.decision_evidence === "object"
+        ? (record.decision_evidence as Record<string, unknown>)
+        : record.decisionEvidence && typeof record.decisionEvidence === "object"
+          ? (record.decisionEvidence as Record<string, unknown>)
+          : undefined,
   };
 }
 

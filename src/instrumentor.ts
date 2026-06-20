@@ -19,6 +19,15 @@ const DEFAULT_ENVIRONMENT = (
   .trim()
   .toLowerCase();
 
+function parseEnvBool(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
 const DEFAULTS = {
   enforcement: EnforcementMode.BLOCK,
   apiKey:
@@ -27,6 +36,10 @@ const DEFAULTS = {
   stepUpTimeoutMinutes: 15,
   stepUpPollIntervalMs: 5000,
   environment: DEFAULT_ENVIRONMENT || "prod",
+  failOpen:
+    parseEnvBool(
+      typeof process !== "undefined" ? process.env?.THOTH_FAIL_OPEN : undefined,
+    ) ?? false,
 };
 
 type ResolvedLogLevel = "debug" | "info" | "warn" | "error";
@@ -364,6 +377,12 @@ function createPolicyViolation(
       policyReferences: decision.policyReferences,
       modelSignals: decision.modelSignals,
       receipt: decision.receipt,
+      decisionEnvelopeVersion: decision.decisionEnvelopeVersion,
+      enforcementTraceId: decision.enforcementTraceId,
+      fastmlFeatures: decision.fastmlFeatures,
+      scoreComponents: decision.scoreComponents,
+      topContributors: decision.topContributors,
+      decisionEvidence: decision.decisionEvidence,
     },
   );
 }
