@@ -36,7 +36,6 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Resolve version from tag or input
         id: version
@@ -173,6 +172,13 @@ jobs:
           NPM_TAG: ${{ steps.version.outputs.npm_tag }}
         run: |
           set -euo pipefail
+          # Force Trusted Publisher OIDC path and avoid npm token auth fallback.
+          unset NODE_AUTH_TOKEN
+          unset NPM_TOKEN
+          if [[ -n "${NPM_CONFIG_USERCONFIG:-}" ]]; then
+            rm -f "${NPM_CONFIG_USERCONFIG}"
+          fi
+          rm -f "${HOME}/.npmrc"
           npm publish --provenance --access public --tag "${NPM_TAG}"
 
       - name: Create or update GitHub release from changelog
