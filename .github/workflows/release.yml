@@ -60,6 +60,14 @@ jobs:
             exit 1
           fi
 
+          if [[ "${VERSION}" =~ -rc[0-9]+$ ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=rc" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
@@ -160,14 +168,21 @@ jobs:
           echo "tar_file=${TAR_FILE}" >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm (Trusted Publisher)
-        run: npm publish --provenance --access public
+        shell: bash
+        env:
+          NPM_TAG: ${{ steps.version.outputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          npm publish --provenance --access public --tag "${NPM_TAG}"
 
       - name: Create or update GitHub release from changelog
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           TAG: ${{ steps.version.outputs.tag }}
           NOTES: ${{ steps.changelog.outputs.notes }}
           TAR_FILE: ${{ steps.pack.outputs.tar_file }}
+          IS_PRERELEASE: ${{ steps.version.outputs.is_prerelease }}
         shell: bash
         run: |
           set -euo pipefail
@@ -177,9 +192,17 @@ jobs:
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${TAR_FILE}" --clobber
             gh release edit "${TAG}" --notes-file release_notes.md
+            RELEASE_ID="$(gh release view "${TAG}" --json id --jq '.id')"
+            gh api -X PATCH "repos/${REPO}/releases/${RELEASE_ID}" \
+              -f prerelease="${IS_PRERELEASE}"
           else
+            prerelease_flag=""
+            if [[ "${IS_PRERELEASE}" == "true" ]]; then
+              prerelease_flag="--prerelease"
+            fi
             gh release create "${TAG}" \
               --title "@atensec/thoth ${TAG}" \
               --notes-file release_notes.md \
+              ${prerelease_flag} \
               "${TAR_FILE}"
           fi

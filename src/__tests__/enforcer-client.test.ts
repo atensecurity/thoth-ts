@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { awaitStepUpDecision, checkEnforce } from "../enforcer-client";
@@ -24,10 +24,30 @@ function buildConfig(overrides: Record<string, unknown> = {}) {
 
 function loadGoldenFixture(name: string): Record<string, unknown> {
   const testDir = dirname(fileURLToPath(import.meta.url));
-  const fixturePath = join(
-    testDir,
-    "../../../../../testdata/sdk/enforcement_decision_golden.json",
-  );
+  const fixtureRelativePath = "testdata/sdk/enforcement_decision_golden.json";
+  let current = testDir;
+  let fixturePath: string | null = null;
+
+  for (let i = 0; i < 10; i += 1) {
+    const candidate = join(current, fixtureRelativePath);
+    if (existsSync(candidate)) {
+      fixturePath = candidate;
+      break;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
+  if (!fixturePath) {
+    throw new Error(
+      `unable to locate golden fixture (${fixtureRelativePath}) from ${testDir}`,
+    );
+  }
+
   const parsed = JSON.parse(readFileSync(fixturePath, "utf-8")) as Record<
     string,
     Record<string, unknown>
