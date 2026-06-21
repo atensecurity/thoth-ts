@@ -37,6 +37,14 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Upgrade npm for Trusted Publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@^11.5.1
+          node --version
+          npm --version
+
       - name: Resolve version from tag or input
         id: version
         shell: bash
