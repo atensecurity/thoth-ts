@@ -41,7 +41,9 @@ pnpm add @atensec/thoth
 yarn add @atensec/thoth
 ```
 
-**Requirements:** Node.js 18+, TypeScript 5.x (if using types)
+**Requirements:** Node.js 22+, TypeScript 5.x (if using types)
+
+**Tested runtimes:** Node.js 22, 24, and 26
 
 ---
 
