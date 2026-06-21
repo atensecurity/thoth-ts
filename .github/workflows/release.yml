@@ -1,0 +1,157 @@
+name: Release @atensec/thoth
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.1.19 or 0.1.19-rc1)"
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Build and release to npm
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@atensec/thoth
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Resolve version from tag or input
+        id: version
+        shell: bash
+        env:
+          TAG_REF: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${INPUT_VERSION}" ]]; then
+            VERSION="${INPUT_VERSION#v}"
+            TAG="v${VERSION}"
+          else
+            TAG="${TAG_REF}"
+            VERSION="${TAG_REF#v}"
+          fi
+
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$ ]]; then
+            echo "Invalid version '${VERSION}'. Expected semantic version like 0.1.19 or 0.1.19-rc1." >&2
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate package version matches release
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "${PACKAGE_VERSION}" != "${VERSION}" ]]; then
+            echo "::error::package.json version (${PACKAGE_VERSION}) does not match release version (${VERSION})."
+            exit 1
+          fi
+
+      - name: Validate changelog entry exists
+        id: changelog
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          NOTES="$(
+            awk -v version="${VERSION}" '
+              $1 == "##" {
+                if (capture && $2 != version) { exit }
+                if ($2 == version) { capture=1 }
+              }
+              capture {print}
+            ' CHANGELOG.md
+          )"
+
+          if [[ -z "${NOTES//[[:space:]]/}" ]]; then
+            echo "::error::Missing CHANGELOG entry for ${VERSION} in CHANGELOG.md"
+            echo "::error::Expected heading format: ## ${VERSION} - YYYY-MM-DD"
+            exit 1
+          fi
+
+          {
+            echo "notes<<EOF"
+            echo "${NOTES}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Run typecheck, tests, and build
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Pack release artifact
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAR_FILE="$(npm pack --silent)"
+          echo "tar_file=${TAR_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm (Trusted Publisher)
+        run: npm publish --provenance --access public
+
+      - name: Create or update GitHub release from changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          NOTES: ${{ steps.changelog.outputs.notes }}
+          TAR_FILE: ${{ steps.pack.outputs.tar_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          printf '%s\n' "${NOTES}" > release_notes.md
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${TAR_FILE}" --clobber
+            gh release edit "${TAG}" --notes-file release_notes.md
+          else
+            gh release create "${TAG}" \
+              --title "@atensec/thoth ${TAG}" \
+              --notes-file release_notes.md \
+              "${TAR_FILE}"
+          fi
