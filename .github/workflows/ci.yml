@@ -29,6 +29,14 @@ jobs:
         with:
           node-version: "${{ matrix.node-version }}"
 
+      - name: Upgrade npm
+        shell: bash
+        # Node 22 ships npm 10, whose dependency resolver fails on the vitest
+        # dependency tree with "Cannot read properties of null (reading
+        # 'edgesOut')". Node 22 stays supported per package.json engines; only
+        # the bundled npm is too old. The publish job already pins npm this way.
+        run: npm install -g npm@^11.5.1
+
       - name: Install dependencies
         shell: bash
         run: |
