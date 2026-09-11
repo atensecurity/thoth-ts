@@ -4,6 +4,16 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ## 0.1.20 - 2026-09-11
 
+### Added
+
+- Added a per-action attestation ID, generated for each tool call unless the
+  caller supplies one, and propagated it through authorization, lifecycle
+  telemetry, decisions, and policy errors.
+- Added bounded human-explanation requests for blocked and step-up decisions and
+  exposed the explanation on decisions and `ThothPolicyViolation`.
+- Exported behavioral-event emission and per-event delivery status types for
+  applications that need process-local telemetry health signals.
+
 ### Changed
 
 - Minimize default telemetry with an explicit field allowlist; omit tool arguments and free-text context, reasons, explanations and full receipts. Authorization inputs and enforcement behavior are unchanged. See PRIVACY.md for wire data and migration limits.
@@ -11,6 +21,7 @@ All notable changes to `@atensec/thoth` are documented in this file.
 - Make telemetry delivery resilient: bounded retries with stable event IDs, so a
   retried delivery is de-duplicable server-side and never replays a governed tool
   call or re-requests authorization.
+- Use native Node ESM imports throughout the published package.
 - Restrict the published package to built output, source and user-facing docs via
   an explicit `files` allowlist. Development-only files (tests, CI workflows,
   `tsconfig.json`, fixtures and internal notes) are no longer published, and a
