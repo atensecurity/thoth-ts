@@ -7,7 +7,7 @@ import {
   DecisionType,
   SourceType,
   EventType,
-} from "../models";
+} from "../models.js";
 
 describe("BehavioralEvent", () => {
   it("has required fields", () => {

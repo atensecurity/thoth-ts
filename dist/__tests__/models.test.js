@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { EnforcementMode, DecisionType, SourceType, EventType, } from "../models";
+import { EnforcementMode, DecisionType, SourceType, EventType, } from "../models.js";
 describe("BehavioralEvent", () => {
     it("has required fields", () => {
         const event = {

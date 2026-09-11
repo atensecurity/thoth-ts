@@ -329,7 +329,7 @@ All options are passed as the second argument to `instrument()`, `wrapAnthropicT
 | `apiUrl`               | `string`                    | Yes\*    | `$THOTH_API_URL` | Tenant API base URL used for both `/v1/enforce` and `/v1/events/batch`.        |
 | `userId`               | `string`                    | No       | `"system"`       | Identity of the user on whose behalf the agent acts.                           |
 | `enforcement`          | `EnforcementMode \| string` | No       | `"block"`        | Enforcement mode: `observe`, `step_up`, `block`, or `progressive`.             |
-| `failOpen`             | `boolean`                   | No       | `false`          | Allow on enforcer infrastructure failures (`network`, `429`, `5xx`).            |
+| `failOpen`             | `boolean`                   | No       | `false`          | Allow on enforcer infrastructure failures (`network`, `429`, `5xx`).           |
 | `apiKey`               | `string`                    | No       | `$THOTH_API_KEY` | API key from the Aten dashboard.                                               |
 | `stepUpTimeoutMinutes` | `number`                    | No       | `15`             | How long to wait for human approval before timing out a step-up hold.          |
 | `stepUpPollIntervalMs` | `number`                    | No       | `5000`           | How often to poll the enforcer for step-up approval status (milliseconds).     |
@@ -395,12 +395,12 @@ up automatically.
 
 ## Environment Variables
 
-| Variable          | Description                                                                                                        | Example                                  |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| `THOTH_API_KEY`   | API key from the Aten dashboard. Used as default if `apiKey` config option is not set.                             | `thoth_live_abc123...`                   |
-| `THOTH_API_URL`   | Tenant API base URL used for both enforcement and event ingestion when `apiUrl` is not provided.                   | `https://enforce.<tenant>.<apex-domain>` |
-| `THOTH_FAIL_OPEN` | Optional fail-open switch (`true/false`). When true, enforcer `network/429/5xx` failures return `ALLOW`. Auth failures still block. | `true` |
-| `THOTH_LOG_LEVEL` | Optional SDK decision-log level override (`DEBUG`, `INFO`, `WARN`, `ERROR`). Falls back to `LOG_LEVEL` when unset. | `DEBUG`                                  |
+| Variable          | Description                                                                                                                         | Example                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `THOTH_API_KEY`   | API key from the Aten dashboard. Used as default if `apiKey` config option is not set.                                              | `thoth_live_abc123...`                   |
+| `THOTH_API_URL`   | Tenant API base URL used for both enforcement and event ingestion when `apiUrl` is not provided.                                    | `https://enforce.<tenant>.<apex-domain>` |
+| `THOTH_FAIL_OPEN` | Optional fail-open switch (`true/false`). When true, enforcer `network/429/5xx` failures return `ALLOW`. Auth failures still block. | `true`                                   |
+| `THOTH_LOG_LEVEL` | Optional SDK decision-log level override (`DEBUG`, `INFO`, `WARN`, `ERROR`). Falls back to `LOG_LEVEL` when unset.                  | `DEBUG`                                  |
 
 When decision logging is enabled at debug level, SDK decision logs include `hold_token` for
 `STEP_UP` flows.
@@ -451,3 +451,7 @@ The dashboard shows:
 ## License
 
 Apache-2.0 — Copyright 2026 Aten Security, Inc. See [LICENSE](./LICENSE) for details.
+
+## Telemetry privacy
+
+Default telemetry omits tool payloads and free-text context while retaining decision evidence. Authorization requests still send original inputs to the configured tenant API. See [privacy boundaries and compatibility notes](PRIVACY.md).

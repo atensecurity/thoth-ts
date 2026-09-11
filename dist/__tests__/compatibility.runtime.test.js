@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { instrument } from "../instrumentor";
-import { ThothPolicyViolation } from "../models";
+import { instrument } from "../instrumentor.js";
+import { ThothPolicyViolation } from "../models.js";
 class CompatTool {
     constructor(run) {
         this.run = run;

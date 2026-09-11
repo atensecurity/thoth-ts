@@ -2,6 +2,20 @@
 
 All notable changes to `@atensec/thoth` are documented in this file.
 
+## 0.1.20 - 2026-09-11
+
+### Changed
+
+- Minimize default telemetry with an explicit field allowlist; omit tool arguments and free-text context, reasons, explanations and full receipts. Authorization inputs and enforcement behavior are unchanged. See PRIVACY.md for wire data and migration limits.
+- Remove payload-bearing diagnostic logs and verify the installed npm artifact against a local HTTP collector.
+- Make telemetry delivery resilient: bounded retries with stable event IDs, so a
+  retried delivery is de-duplicable server-side and never replays a governed tool
+  call or re-requests authorization.
+- Restrict the published package to built output, source and user-facing docs via
+  an explicit `files` allowlist. Development-only files (tests, CI workflows,
+  `tsconfig.json`, fixtures and internal notes) are no longer published, and a
+  packing artifact can no longer be swept into the tarball.
+
 ## 0.1.19 - 2026-06-20
 
 ### Changed

@@ -50,10 +50,12 @@ export class ThothPolicyViolation extends Error {
         this.receipt = options.receipt;
         this.decisionEnvelopeVersion = options.decisionEnvelopeVersion;
         this.enforcementTraceId = options.enforcementTraceId;
+        this.actionAttestationId = options.actionAttestationId;
         this.fastmlFeatures = options.fastmlFeatures;
         this.scoreComponents = options.scoreComponents;
         this.topContributors = options.topContributors;
         this.decisionEvidence = options.decisionEvidence;
+        this.explanation = options.explanation;
     }
 }
 //# sourceMappingURL=models.js.map

@@ -1,4 +1,9 @@
-import { EnforcementDecision, DecisionType, ThothConfig } from "./models";
+import {
+  EnforcementDecision,
+  DecisionType,
+  HumanExplanation,
+  ThothConfig,
+} from "./models.js";
 
 const FALLBACK: EnforcementDecision = {
   decision: DecisionType.BLOCK,
@@ -34,6 +39,7 @@ type EnforceConfig = Required<
     | "sessionIntent"
     | "policyContext"
     | "enforcementTraceId"
+    | "actionAttestationId"
     | "purpose"
     | "dataClassification"
     | "taskContext"
@@ -73,8 +79,11 @@ export async function checkEnforce(
   sessionToolCalls: string[],
   toolArgs?: Record<string, unknown>,
   enforcementTraceId?: string,
+  actionAttestationId?: string,
 ): Promise<EnforcementDecision> {
   const managedApiUrl = config.apiUrl.replace(/\/$/, "");
+  const resolvedActionAttestationId =
+    actionAttestationId ?? config.actionAttestationId;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -102,6 +111,9 @@ export async function checkEnforce(
         }),
         ...(enforcementTraceId !== undefined && {
           enforcement_trace_id: enforcementTraceId,
+        }),
+        ...(resolvedActionAttestationId !== undefined && {
+          action_attestation_id: resolvedActionAttestationId,
         }),
         ...(config.sessionIntent !== undefined && {
           session_intent: config.sessionIntent,
@@ -138,21 +150,83 @@ export async function checkEnforce(
       return FALLBACK;
     }
     return toEnforcementDecision(await resp.json());
-  } catch (error) {
+  } catch {
     if (config.failOpen) {
       console.warn(
-        "thoth: enforcer unreachable, fail-open fallback to ALLOW (tool=%s):",
+        "thoth: enforcer unreachable, fail-open fallback to ALLOW (tool=%s)",
         toolName,
-        error,
       );
       return FAIL_OPEN_FALLBACK;
     }
     console.error(
-      "thoth: enforcer unreachable, fail-closed fallback to BLOCK (tool=%s):",
+      "thoth: enforcer unreachable, fail-closed fallback to BLOCK (tool=%s)",
       toolName,
-      error,
     );
     return FALLBACK; // non-fatal
+  }
+}
+
+export async function requestHumanExplanation(
+  config: EnforceConfig,
+  decision: EnforcementDecision,
+  toolName: string,
+  sessionId: string,
+  sessionToolCalls: string[],
+  toolArgs?: Record<string, unknown>,
+  actionAttestationId?: string,
+): Promise<HumanExplanation | undefined> {
+  if (
+    decision.decision !== DecisionType.BLOCK &&
+    decision.decision !== DecisionType.STEP_UP
+  ) {
+    return undefined;
+  }
+
+  const managedApiUrl = config.apiUrl.replace(/\/$/, "");
+  const resolvedActionAttestationId =
+    actionAttestationId ?? config.actionAttestationId;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (config.apiKey) {
+    headers["Authorization"] = `Bearer ${config.apiKey}`;
+  }
+
+  try {
+    const resp = await fetch(`${managedApiUrl}/v1/explain`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        agent_id: config.agentId,
+        tenant_id: config.tenantId,
+        user_id: config.userId,
+        tool_name: toolName,
+        session_id: sessionId,
+        session_tool_calls: sessionToolCalls,
+        approved_scope: config.approvedScope,
+        ...(toolArgs !== undefined && { tool_args: toolArgs }),
+        ...(resolvedActionAttestationId !== undefined && {
+          action_attestation_id: resolvedActionAttestationId,
+        }),
+        decision: decision.decision,
+        decision_reason_code: decision.decisionReasonCode,
+        action_classification: decision.actionClassification,
+        violation_id: decision.violationId,
+        risk_score: decision.riskScore,
+        regulatory_regimes: decision.regulatoryRegimes ?? [],
+        matched_rule_ids: decision.matchedRuleIds ?? [],
+        matched_control_ids: decision.matchedControlIds ?? [],
+        policy_references: decision.policyReferences ?? [],
+        step_up_timeout_seconds: decision.stepUpTimeoutSeconds,
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!resp.ok) {
+      return undefined;
+    }
+    return (await resp.json()) as HumanExplanation;
+  } catch {
+    return undefined;
   }
 }
 
@@ -278,6 +352,9 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
     enforcementTraceId: readText(
       record.enforcement_trace_id ?? record.enforcementTraceId,
     ),
+    actionAttestationId: readText(
+      record.action_attestation_id ?? record.actionAttestationId,
+    ),
     fastmlFeatures:
       record.fastml_features &&
       typeof record.fastml_features === "object" &&
@@ -355,12 +432,8 @@ export async function awaitStepUpDecision(
       if (directDecision.decision !== DecisionType.STEP_UP) {
         return directDecision;
       }
-    } catch (error) {
-      console.error(
-        "thoth: step-up poll failure for hold_token=%s:",
-        holdToken,
-        error,
-      );
+    } catch {
+      console.error("thoth: step-up poll failure");
     }
 
     await sleep(config.stepUpPollIntervalMs);

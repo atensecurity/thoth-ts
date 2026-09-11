@@ -53,7 +53,7 @@
  * }
  * ```
  */
-import type { ThothConfig } from "../models";
+import type { ThothConfig } from "../models.js";
 /** A tool function that receives OpenAI parsed function arguments. */
 export type OpenAIToolFn = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 /**

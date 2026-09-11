@@ -20,8 +20,36 @@ permissions:
   id-token: write
 
 jobs:
+  validate:
+    name: Validate package (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24", "26"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "${{ matrix.node-version }}"
+      - name: Install dependencies
+        run: |
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+      - name: Typecheck, test, and verify installed package
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:package
+
   release:
     name: Build and release to npm
+    needs: validate
     runs-on: ubuntu-latest
     environment:
       name: npm
@@ -160,11 +188,8 @@ jobs:
             npm install
           fi
 
-      - name: Run typecheck, tests, and build
-        run: |
-          npm run typecheck
-          npm test
-          npm run build
+      - name: Build release artifact
+        run: npm run build
 
       - name: Pack release artifact
         id: pack

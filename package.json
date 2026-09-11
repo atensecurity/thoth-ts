@@ -1,27 +1,39 @@
 {
   "name": "@atensec/thoth",
-  "version": "0.1.19",
+  "version": "0.5.21",
+  "type": "module",
   "author": "Aten Engineering <engineering@atensecurity.com>",
   "description": "AI agent governance SDK by Aten Security",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./anthropic": {
-      "import": "./dist/integrations/anthropic.js",
-      "types": "./dist/integrations/anthropic.d.ts"
+      "types": "./dist/integrations/anthropic.d.ts",
+      "import": "./dist/integrations/anthropic.js"
     },
     "./openai": {
-      "import": "./dist/integrations/openai.js",
-      "types": "./dist/integrations/openai.d.ts"
+      "types": "./dist/integrations/openai.d.ts",
+      "import": "./dist/integrations/openai.js"
     }
   },
+  "files": [
+    "dist",
+    "!dist/__tests__",
+    "src",
+    "!src/__tests__",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "PRIVACY.md"
+  ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
+    "test": "vitest run src",
+    "test:package": "node scripts/test-package.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -56,7 +56,7 @@
  * }
  * ```
  */
-import type { ThothConfig } from "../models";
+import type { ThothConfig } from "../models.js";
 /** A tool function that receives Anthropic `tool_use` input (JSON object). */
 export type AnthropicToolFn = (input: Record<string, unknown>) => unknown | Promise<unknown>;
 /**

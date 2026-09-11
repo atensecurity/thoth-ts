@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { instrument } from "../instrumentor";
-import { ThothPolicyViolation } from "../models";
+import { instrument } from "../instrumentor.js";
+import { ThothPolicyViolation } from "../models.js";
 
 type ToolRun = (input: string) => Promise<string>;
 
@@ -76,7 +76,11 @@ describe("instrument() compatibility wrappers", () => {
       const resultOuter = await thothOuter.tools[0].run("incident-42");
       expect(resultOuter).toBe("ok:incident-42");
       expect(calledOuter.value).toBe(true);
-      expect(eventsOuter).toEqual([`${stack}:start`, "tool:run", `${stack}:end`]);
+      expect(eventsOuter).toEqual([
+        `${stack}:start`,
+        "tool:run",
+        `${stack}:end`,
+      ]);
 
       const calledInner = { value: false };
       const eventsInner: string[] = [];
@@ -97,7 +101,11 @@ describe("instrument() compatibility wrappers", () => {
       const resultInner = await thothInner.tools[0].run("incident-42");
       expect(resultInner).toBe("ok:incident-42");
       expect(calledInner.value).toBe(true);
-      expect(eventsInner).toEqual([`${stack}:start`, "tool:run", `${stack}:end`]);
+      expect(eventsInner).toEqual([
+        `${stack}:start`,
+        "tool:run",
+        `${stack}:end`,
+      ]);
     },
   );
 

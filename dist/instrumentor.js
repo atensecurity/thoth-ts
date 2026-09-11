@@ -1,6 +1,6 @@
-import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, EventType, } from "./models";
-import { awaitStepUpDecision, checkEnforce } from "./enforcer-client";
-import { emitBehavioralEvent } from "./emitter";
+import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, EventType, } from "./models.js";
+import { awaitStepUpDecision, checkEnforce, requestHumanExplanation, } from "./enforcer-client.js";
+import { emitBehavioralEvent } from "./emitter.js";
 const DEFAULT_ENVIRONMENT = ((typeof process !== "undefined" &&
     (process.env?.THOTH_ENVIRONMENT || process.env?.THOTH_ENV)) ||
     "prod")
@@ -139,6 +139,13 @@ function pendingSessionToolCalls(toolCalls, toolName) {
     }
     return [...toolCalls];
 }
+function resolveActionAttestationId(config) {
+    const configured = config.actionAttestationId?.trim();
+    if (configured) {
+        return configured;
+    }
+    return crypto.randomUUID();
+}
 function buildDeferredReason(decision) {
     const base = decision.deferReason ??
         decision.reason ??
@@ -150,11 +157,11 @@ function buildDeferredReason(decision) {
     }
     return base;
 }
-function logDecision(toolName, decision, phase, sessionId, traceId) {
+function logDecision(toolName, decision, phase, sessionId, traceId, actionAttestationId) {
     if (typeof console?.debug !== "function" || !shouldLogDecisionDebug()) {
         return;
     }
-    console.debug("thoth %s decision tool=%s decision=%s reason_code=%s reason=%s hold_token=%s trace_id=%s session_id=%s", phase, toolName, decision.decision, decision.decisionReasonCode ?? "", decision.reason ?? "", decision.holdToken ?? "", traceId, sessionId);
+    console.debug("thoth %s decision tool=%s decision=%s reason_code=%s trace_id=%s action_attestation_id=%s session_id=%s", phase, toolName, decision.decision, decision.decisionReasonCode ?? "", traceId, decision.actionAttestationId ?? actionAttestationId, sessionId);
 }
 function applyModifiedArgs(args, modifiedToolArgs) {
     if (!modifiedToolArgs)
@@ -210,6 +217,9 @@ function decisionToMetadata(decision) {
     if (decision.actionClassification) {
         metadata.action_classification = decision.actionClassification;
     }
+    if (decision.actionAttestationId) {
+        metadata.action_attestation_id = decision.actionAttestationId;
+    }
     if (decision.deferTimeoutSeconds) {
         metadata.defer_timeout_seconds = decision.deferTimeoutSeconds;
     }
@@ -251,7 +261,7 @@ function decisionToMetadata(decision) {
     }
     return metadata;
 }
-function createPolicyViolation(toolName, decision, fallbackReason) {
+function createPolicyViolation(toolName, decision, fallbackReason, explanation) {
     return new ThothPolicyViolation(toolName, decision.reason ?? fallbackReason, decision.violationId, {
         decisionReasonCode: decision.decisionReasonCode,
         actionClassification: decision.actionClassification,
@@ -271,18 +281,21 @@ function createPolicyViolation(toolName, decision, fallbackReason) {
         receipt: decision.receipt,
         decisionEnvelopeVersion: decision.decisionEnvelopeVersion,
         enforcementTraceId: decision.enforcementTraceId,
+        actionAttestationId: decision.actionAttestationId,
         fastmlFeatures: decision.fastmlFeatures,
         scoreComponents: decision.scoreComponents,
         topContributors: decision.topContributors,
         decisionEvidence: decision.decisionEvidence,
+        explanation,
     });
 }
-function baseToolEventMetadata(toolName, args, cfg, enforcementTraceId) {
+function baseToolEventMetadata(toolName, args, cfg, enforcementTraceId, actionAttestationId) {
     const toolArgs = toolArgsFromCall(args);
     return {
         sdk_language: "typescript",
         environment: cfg.environment,
         enforcement_trace_id: enforcementTraceId,
+        action_attestation_id: actionAttestationId,
         ...(cfg.purpose !== undefined ? { purpose: cfg.purpose } : {}),
         ...(cfg.purpose !== undefined ? { purpose_context: cfg.purpose } : {}),
         ...(cfg.dataClassification !== undefined
@@ -350,11 +363,15 @@ function policyViolationMetadata(violation) {
     if (violation.receipt) {
         metadata.receipt = violation.receipt;
     }
+    if (violation.explanation) {
+        metadata.human_explanation = violation.explanation;
+    }
     return metadata;
 }
-function wrapAsAsyncGenerator(toolName, fn, toolCalls, enforce, emit, baseMetadataForArgs) {
+function wrapAsAsyncGenerator(toolName, fn, toolCalls, enforce, emit, baseMetadataForArgs, resolveActionAttestationIdForCall) {
     return async function* (...args) {
-        const baseMetadata = baseMetadataForArgs(args);
+        const actionAttestationId = resolveActionAttestationIdForCall();
+        const baseMetadata = baseMetadataForArgs(args, actionAttestationId);
         const start = Date.now();
         const sessionToolCalls = pendingSessionToolCalls(toolCalls, toolName);
         await emit({
@@ -369,7 +386,7 @@ function wrapAsAsyncGenerator(toolName, fn, toolCalls, enforce, emit, baseMetada
         let effectiveArgs;
         let decision;
         try {
-            const outcome = await enforce(args);
+            const outcome = await enforce(args, actionAttestationId);
             effectiveArgs = outcome.effectiveArgs;
             decision = outcome.decision;
         }
@@ -481,21 +498,32 @@ export function instrument(agent, config) {
         const originalRun = tool.run?.bind(tool);
         if (!originalRun)
             continue;
-        const enforce = async (args) => {
+        const enforce = async (args, actionAttestationId) => {
             if (cfg.enforcement === EnforcementMode.OBSERVE) {
                 return { effectiveArgs: args };
             }
-            const decision = await checkEnforce(cfg, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), enforcementTraceId);
-            logDecision(toolName, decision, "enforce", sessionId, enforcementTraceId);
+            const decision = await checkEnforce(cfg, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), enforcementTraceId, actionAttestationId);
+            if (!decision.actionAttestationId) {
+                decision.actionAttestationId = actionAttestationId;
+            }
+            const initialExplanation = await requestHumanExplanation(cfg, decision, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), actionAttestationId);
+            if (initialExplanation) {
+                decision.explanation = initialExplanation;
+            }
+            logDecision(toolName, decision, "enforce", sessionId, enforcementTraceId, actionAttestationId);
             if (decision.decision === DecisionType.STEP_UP) {
                 const holdToken = decision.holdToken;
                 if (!holdToken) {
-                    throw createPolicyViolation(toolName, decision, "step-up required but hold token missing");
+                    throw createPolicyViolation(toolName, decision, "step-up required but hold token missing", initialExplanation);
                 }
                 const resolved = await awaitStepUpDecision(cfg, holdToken);
-                logDecision(toolName, resolved, "step_up_resolved", sessionId, enforcementTraceId);
+                if (!resolved.actionAttestationId) {
+                    resolved.actionAttestationId = actionAttestationId;
+                }
+                logDecision(toolName, resolved, "step_up_resolved", sessionId, enforcementTraceId, actionAttestationId);
                 if (resolved.decision === DecisionType.BLOCK) {
-                    throw createPolicyViolation(toolName, resolved, "step-up blocked");
+                    const resolvedExplanation = (await requestHumanExplanation(cfg, resolved, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), actionAttestationId)) ?? initialExplanation;
+                    throw createPolicyViolation(toolName, resolved, "step-up blocked", resolvedExplanation);
                 }
                 if (resolved.decision === DecisionType.STEP_UP) {
                     throw new ThothPolicyViolation(toolName, "step-up unresolved", decision.violationId ?? resolved.violationId, {
@@ -514,6 +542,10 @@ export function instrument(agent, config) {
                         policyReferences: resolved.policyReferences ?? decision.policyReferences,
                         modelSignals: resolved.modelSignals ?? decision.modelSignals,
                         receipt: resolved.receipt ?? decision.receipt,
+                        actionAttestationId: resolved.actionAttestationId ??
+                            decision.actionAttestationId ??
+                            actionAttestationId,
+                        explanation: initialExplanation,
                     });
                 }
                 if (resolved.decision === DecisionType.DEFER) {
@@ -533,6 +565,8 @@ export function instrument(agent, config) {
                         policyReferences: resolved.policyReferences,
                         modelSignals: resolved.modelSignals,
                         receipt: resolved.receipt,
+                        actionAttestationId: resolved.actionAttestationId ?? actionAttestationId,
+                        explanation: initialExplanation,
                     });
                 }
                 if (resolved.decision === DecisionType.MODIFY) {
@@ -544,7 +578,7 @@ export function instrument(agent, config) {
                 return { effectiveArgs: args, decision: resolved };
             }
             if (decision.decision === DecisionType.BLOCK) {
-                throw createPolicyViolation(toolName, decision, "blocked");
+                throw createPolicyViolation(toolName, decision, "blocked", initialExplanation);
             }
             if (decision.decision === DecisionType.DEFER) {
                 throw new ThothPolicyViolation(toolName, buildDeferredReason(decision), decision.violationId, {
@@ -563,6 +597,8 @@ export function instrument(agent, config) {
                     policyReferences: decision.policyReferences,
                     modelSignals: decision.modelSignals,
                     receipt: decision.receipt,
+                    actionAttestationId: decision.actionAttestationId ?? actionAttestationId,
+                    explanation: initialExplanation,
                 });
             }
             if (decision.decision === DecisionType.MODIFY) {
@@ -613,12 +649,13 @@ export function instrument(agent, config) {
         };
         let wrapped;
         if (isAsyncGeneratorFunction(originalRun)) {
-            wrapped = wrapAsAsyncGenerator(toolName, originalRun, toolCalls, enforce, emit, (args) => baseToolEventMetadata(toolName, args, cfg, enforcementTraceId));
+            wrapped = wrapAsAsyncGenerator(toolName, originalRun, toolCalls, enforce, emit, (args, actionAttestationId) => baseToolEventMetadata(toolName, args, cfg, enforcementTraceId, actionAttestationId), () => resolveActionAttestationId(cfg));
         }
         else {
             const wrappedAsync = async (...args) => {
                 const start = Date.now();
-                const baseMetadata = baseToolEventMetadata(toolName, args, cfg, enforcementTraceId);
+                const actionAttestationId = resolveActionAttestationId(cfg);
+                const baseMetadata = baseToolEventMetadata(toolName, args, cfg, enforcementTraceId, actionAttestationId);
                 const sessionToolCalls = pendingSessionToolCalls(toolCalls, toolName);
                 await emit({
                     eventType: EventType.TOOL_CALL_PRE,
@@ -631,7 +668,7 @@ export function instrument(agent, config) {
                 });
                 let outcome;
                 try {
-                    outcome = await enforce(args);
+                    outcome = await enforce(args, actionAttestationId);
                 }
                 catch (error) {
                     if (error instanceof ThothPolicyViolation) {

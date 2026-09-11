@@ -88,6 +88,11 @@ export interface ThothConfig {
    */
   enforcementTraceId?: string;
   /**
+   * Optional per-action attestation identifier for independent action
+   * attestation workflows. Defaults to a generated UUID per tool call.
+   */
+  actionAttestationId?: string;
+  /**
    * Optional purpose context for purpose/sensitivity governance.
    */
   purpose?: string;
@@ -137,10 +142,32 @@ export interface EnforcementDecision {
   stepUpTimeoutSeconds?: number;
   decisionEnvelopeVersion?: string;
   enforcementTraceId?: string;
+  actionAttestationId?: string;
   fastmlFeatures?: Record<string, number>;
   scoreComponents?: Record<string, unknown>;
   topContributors?: Record<string, unknown>[];
   decisionEvidence?: Record<string, unknown>;
+  explanation?: HumanExplanation;
+}
+
+export interface HumanExplanation {
+  violation_id: string;
+  tenant_id?: string;
+  session_id?: string;
+  agent_id?: string;
+  user_id?: string;
+  tool_name?: string;
+  what_happened: string;
+  why_it_was_blocked: string;
+  what_to_do_next: string;
+  business_impact: string;
+  request_url?: string;
+  timestamp?: string;
+  severity: string;
+  regulatory_context?: string;
+  decision_reason_code?: string;
+  action_classification?: string;
+  risk_score?: number;
 }
 
 export class ThothPolicyViolation extends Error {
@@ -163,10 +190,12 @@ export class ThothPolicyViolation extends Error {
 
   public readonly decisionEnvelopeVersion?: string;
   public readonly enforcementTraceId?: string;
+  public readonly actionAttestationId?: string;
   public readonly fastmlFeatures?: Record<string, number>;
   public readonly scoreComponents?: Record<string, unknown>;
   public readonly topContributors?: Record<string, unknown>[];
   public readonly decisionEvidence?: Record<string, unknown>;
+  public readonly explanation?: HumanExplanation;
 
   constructor(
     public readonly toolName: string,
@@ -191,10 +220,12 @@ export class ThothPolicyViolation extends Error {
       receipt?: Record<string, unknown>;
       decisionEnvelopeVersion?: string;
       enforcementTraceId?: string;
+      actionAttestationId?: string;
       fastmlFeatures?: Record<string, number>;
       scoreComponents?: Record<string, unknown>;
       topContributors?: Record<string, unknown>[];
       decisionEvidence?: Record<string, unknown>;
+      explanation?: HumanExplanation;
     } = {},
   ) {
     super(`Thoth blocked tool '${toolName}': ${reason}`);
@@ -217,9 +248,11 @@ export class ThothPolicyViolation extends Error {
     this.receipt = options.receipt;
     this.decisionEnvelopeVersion = options.decisionEnvelopeVersion;
     this.enforcementTraceId = options.enforcementTraceId;
+    this.actionAttestationId = options.actionAttestationId;
     this.fastmlFeatures = options.fastmlFeatures;
     this.scoreComponents = options.scoreComponents;
     this.topContributors = options.topContributors;
     this.decisionEvidence = options.decisionEvidence;
+    this.explanation = options.explanation;
   }
 }

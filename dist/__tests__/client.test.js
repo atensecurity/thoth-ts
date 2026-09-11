@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { EnforcementMode } from "../models";
+import { EnforcementMode } from "../models.js";
 const mocks = vi.hoisted(() => ({
     instrument: vi.fn((agent) => agent),
     wrapAnthropicTools: vi.fn((toolFns) => toolFns),
@@ -14,7 +14,7 @@ vi.mock("../integrations/anthropic", () => ({
 vi.mock("../integrations/openai", () => ({
     wrapOpenAITools: mocks.wrapOpenAITools,
 }));
-import { ThothClient } from "../client";
+import { ThothClient } from "../client.js";
 describe("ThothClient", () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -95,7 +95,7 @@ describe("ThothClient", () => {
         expect(mocks.wrapOpenAITools).toHaveBeenCalledTimes(1);
     });
     it("is exported from the package root", async () => {
-        const root = await import("../index");
+        const root = await import("../index.js");
         expect(root.ThothClient).toBe(ThothClient);
     });
 });

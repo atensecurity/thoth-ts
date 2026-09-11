@@ -56,7 +56,7 @@
  * }
  * ```
  */
-import { instrument } from "../instrumentor";
+import { instrument } from "../instrumentor.js";
 /**
  * Wrap a dict of tool functions for use in an Anthropic Claude agentic loop.
  *

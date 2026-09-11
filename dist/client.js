@@ -1,6 +1,6 @@
-import { wrapAnthropicTools, } from "./integrations/anthropic";
-import { wrapOpenAITools } from "./integrations/openai";
-import { instrument } from "./instrumentor";
+import { wrapAnthropicTools, } from "./integrations/anthropic.js";
+import { wrapOpenAITools } from "./integrations/openai.js";
+import { instrument } from "./instrumentor.js";
 /**
  * Backward-compatible facade for Thoth SDK usage.
  *

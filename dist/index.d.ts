@@ -1,11 +1,12 @@
-export { instrument } from "./instrumentor";
-export { ThothClient } from "./client";
-export { ThothPolicyViolation } from "./models";
-export type { BehavioralEvent, ThothConfig, EnforcementDecision, ThothConfig as InstrumentOptions, } from "./models";
-export { EnforcementMode, DecisionType, SourceType, EventType } from "./models";
-export { emitBehavioralEvent } from "./emitter";
-export { wrapAnthropicTools } from "./integrations/anthropic";
-export type { AnthropicToolFn } from "./integrations/anthropic";
-export { wrapOpenAITools } from "./integrations/openai";
-export type { OpenAIToolFn } from "./integrations/openai";
+export { instrument } from "./instrumentor.js";
+export { ThothClient } from "./client.js";
+export { ThothPolicyViolation } from "./models.js";
+export type { BehavioralEvent, ThothConfig, EnforcementDecision, HumanExplanation, ThothConfig as InstrumentOptions, } from "./models.js";
+export { EnforcementMode, DecisionType, SourceType, EventType } from "./models.js";
+export { emitBehavioralEvent } from "./emitter.js";
+export type { DeliveryOptions, DeliveryStatus } from "./emitter.js";
+export { wrapAnthropicTools } from "./integrations/anthropic.js";
+export type { AnthropicToolFn } from "./integrations/anthropic.js";
+export { wrapOpenAITools } from "./integrations/openai.js";
+export type { OpenAIToolFn } from "./integrations/openai.js";
 //# sourceMappingURL=index.d.ts.map

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { EnforcementMode } from "../models";
+import { EnforcementMode } from "../models.js";
 
 const mocks = vi.hoisted(() => ({
   instrument: vi.fn(<T extends object>(agent: T) => agent),
@@ -19,7 +19,7 @@ vi.mock("../integrations/openai", () => ({
   wrapOpenAITools: mocks.wrapOpenAITools,
 }));
 
-import { ThothClient } from "../client";
+import { ThothClient } from "../client.js";
 
 describe("ThothClient", () => {
   beforeEach(() => {
@@ -126,7 +126,7 @@ describe("ThothClient", () => {
   });
 
   it("is exported from the package root", async () => {
-    const root = await import("../index");
+    const root = await import("../index.js");
     expect(root.ThothClient).toBe(ThothClient);
   });
 });

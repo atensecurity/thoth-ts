@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { awaitStepUpDecision, checkEnforce } from "../enforcer-client";
-import { EnforcementMode } from "../models";
+import { awaitStepUpDecision, checkEnforce, requestHumanExplanation, } from "../enforcer-client.js";
+import { EnforcementMode } from "../models.js";
 function buildConfig(overrides = {}) {
     return {
         agentId: "agent_1",
@@ -146,6 +146,18 @@ describe("enforcer-client response mapping", () => {
             user_id: "system",
         });
     });
+    it("sends action_attestation_id when provided", async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ decision: "ALLOW" }),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        await checkEnforce(buildConfig(), "read:data", "sess_1", ["read:data"], { path: "/tmp/a.txt" }, "trace-1", "attest-1");
+        const [, init] = fetchMock.mock.calls[0];
+        const body = JSON.parse(String(init.body));
+        expect(body.enforcement_trace_id).toBe("trace-1");
+        expect(body.action_attestation_id).toBe("attest-1");
+    });
     it("allows on retryable status when failOpen is enabled", async () => {
         vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
             ok: false,
@@ -168,6 +180,26 @@ describe("enforcer-client response mapping", () => {
         }));
         const decision = await checkEnforce(buildConfig({ failOpen: true }), "read:data", "sess_1", ["read:data"]);
         expect(decision.decision).toBe("BLOCK");
+    });
+    it("requests a human explanation for BLOCK decisions", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({
+                violation_id: "vio-1",
+                what_happened: "Your agent attempted a blocked action.",
+                why_it_was_blocked: "Outside approved scope.",
+                what_to_do_next: "Contact #secops.",
+                business_impact: "Potential data loss.",
+                severity: "high",
+            }),
+        }));
+        const explanation = await requestHumanExplanation(buildConfig(), {
+            decision: "BLOCK",
+            violationId: "vio-1",
+            decisionReasonCode: "policy_scope_violation",
+        }, "write:file", "sess_1", ["write:file"], { path: "/tmp/prod.db" });
+        expect(explanation?.violation_id).toBe("vio-1");
+        expect(explanation?.what_to_do_next).toContain("#secops");
     });
 });
 //# sourceMappingURL=enforcer-client.test.js.map

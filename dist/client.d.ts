@@ -1,6 +1,6 @@
-import { type AnthropicToolFn } from "./integrations/anthropic";
-import { type OpenAIToolFn } from "./integrations/openai";
-import type { ThothConfig } from "./models";
+import { type AnthropicToolFn } from "./integrations/anthropic.js";
+import { type OpenAIToolFn } from "./integrations/openai.js";
+import type { ThothConfig } from "./models.js";
 type ClientConfig = Partial<ThothConfig>;
 /**
  * Backward-compatible facade for Thoth SDK usage.

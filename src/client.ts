@@ -1,10 +1,10 @@
 import {
   wrapAnthropicTools,
   type AnthropicToolFn,
-} from "./integrations/anthropic";
-import { wrapOpenAITools, type OpenAIToolFn } from "./integrations/openai";
-import { instrument } from "./instrumentor";
-import type { ThothConfig } from "./models";
+} from "./integrations/anthropic.js";
+import { wrapOpenAITools, type OpenAIToolFn } from "./integrations/openai.js";
+import { instrument } from "./instrumentor.js";
+import type { ThothConfig } from "./models.js";
 
 type ClientConfig = Partial<ThothConfig>;
 

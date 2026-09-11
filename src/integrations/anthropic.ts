@@ -57,8 +57,8 @@
  * ```
  */
 
-import { instrument } from "../instrumentor";
-import type { ThothConfig } from "../models";
+import { instrument } from "../instrumentor.js";
+import type { ThothConfig } from "../models.js";
 
 /** A tool function that receives Anthropic `tool_use` input (JSON object). */
 export type AnthropicToolFn = (

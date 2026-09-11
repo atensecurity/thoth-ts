@@ -1,35 +1,45 @@
+import { telemetryEvent } from "./telemetry.js";
 const BATCH_ENDPOINT_SUFFIX = "/v1/events/batch";
-const MAX_ERROR_BODY_CHARS = 512;
-export async function emitBehavioralEvent(event, apiUrl, apiKey) {
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+export async function emitBehavioralEvent(event, apiUrl, apiKey, options = {}) {
+    const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
+    const retryDelayMs = Math.max(0, options.retryDelayMs ?? 100);
     if (!apiKey) {
         console.error("thoth: apiKey missing; dropping telemetry event_id=%s", event.eventId);
-        return;
+        return { eventId: event.eventId, state: "dropped", attempts: 0 };
     }
-    try {
-        const endpoint = `${apiUrl.replace(/\/$/, "")}${BATCH_ENDPOINT_SUFFIX}`;
-        const response = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${apiKey}`,
-                "X-Api-Key": apiKey,
-            },
-            body: JSON.stringify({ events: [event] }),
-            signal: AbortSignal.timeout(5000),
-        });
-        if (!response.ok) {
-            let responseBody = "";
-            try {
-                responseBody = (await response.text()).slice(0, MAX_ERROR_BODY_CHARS);
+    const endpoint = `${apiUrl.replace(/\/$/, "")}${BATCH_ENDPOINT_SUFFIX}`;
+    const body = JSON.stringify({ events: [telemetryEvent(event)] });
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            const response = await fetch(endpoint, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${apiKey}`,
+                    "X-Api-Key": apiKey,
+                },
+                body,
+                signal: AbortSignal.timeout(5000),
+            });
+            await response.body?.cancel();
+            if (response.ok) {
+                return { eventId: event.eventId, state: "delivered", attempts: attempt };
             }
-            catch (readError) {
-                responseBody = `<read_error:${String(readError)}>`;
+            const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+            if (!retryable || attempt === maxAttempts) {
+                console.warn("thoth: telemetry ingest rejected; dropping event_id=%s status=%s attempts=%s", event.eventId, response.status, attempt);
+                return { eventId: event.eventId, state: "dropped", attempts: attempt };
             }
-            console.warn("thoth: telemetry ingest rejected; dropping event_id=%s status=%s url=%s body=%s", event.eventId, response.status, endpoint, responseBody);
         }
+        catch {
+            if (attempt === maxAttempts) {
+                console.error("thoth: telemetry ingest failure; dropping event_id=%s attempts=%s", event.eventId, attempt);
+                return { eventId: event.eventId, state: "dropped", attempts: attempt };
+            }
+        }
+        await delay(retryDelayMs * attempt);
     }
-    catch (error) {
-        console.error("thoth: telemetry ingest failure; dropping event_id=%s", event.eventId, error);
-    }
+    return { eventId: event.eventId, state: "dropped", attempts: maxAttempts };
 }
 //# sourceMappingURL=emitter.js.map

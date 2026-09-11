@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { instrument } from "../instrumentor";
-import { DecisionType, ThothPolicyViolation } from "../models";
+import { instrument } from "../instrumentor.js";
+import { DecisionType, ThothPolicyViolation } from "../models.js";
 
 class FakeTool {
   name = "read:data";
@@ -112,11 +112,17 @@ describe("instrument()", () => {
     const eventCalls = fetchMock.mock.calls.filter((call) =>
       String(call[0]).includes("/v1/events/batch"),
     );
+    const enforceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/enforce"),
+    );
     const events = eventCalls.flatMap((call) => {
       const init = (call[1] ?? {}) as RequestInit;
       const body = JSON.parse(String(init.body ?? "{}"));
       return body.events ?? [];
     });
+    const enforceBody = JSON.parse(
+      String(((enforceCall?.[1] ?? {}) as RequestInit).body ?? "{}"),
+    );
     const pre = events.find(
       (event: any) => event.eventType === "TOOL_CALL_PRE",
     );
@@ -128,6 +134,11 @@ describe("instrument()", () => {
     expect(pre.metadata.event_phase).toBe("pre");
     expect(pre.metadata.sdk_language).toBe("typescript");
     expect(pre.metadata.enforcement_trace_id).toBe("trace-telemetry-1");
+    expect(typeof pre.metadata.action_attestation_id).toBe("string");
+    expect(pre.metadata.action_attestation_id.length).toBeGreaterThan(0);
+    expect(pre.metadata.action_attestation_id).toBe(
+      enforceBody.action_attestation_id,
+    );
     expect(pre.metadata.tool_call.name).toBe("read:data");
     expect(post.metadata.event_phase).toBe("post");
     expect(post.metadata.authorization_decision).toBe("ALLOW");
@@ -666,7 +677,7 @@ describe("instrument()", () => {
     }
     vi.resetModules();
     const { instrument: instrumentWithEnvFallback } = await import(
-      "../instrumentor"
+      "../instrumentor.js"
     );
 
     const fetchMock = vi.fn().mockImplementation((url: string) => {
@@ -699,7 +710,7 @@ describe("instrument()", () => {
     expect(body.environment).toBe("dev");
   });
 
-  it("includes hold_token in debug decision logs", async () => {
+  it("omits hold tokens and free-text reasons from debug decision logs", async () => {
     const agent = new FakeAgent();
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/v1/enforce/hold/")) {
@@ -745,8 +756,8 @@ describe("instrument()", () => {
       await agent.tools[0].run("arg");
 
       const debugOutput = debugSpy.mock.calls.flat().join(" ");
-      expect(debugOutput).toContain("hold_token=%s");
-      expect(debugOutput).toContain("tok_step_up_trace");
+      expect(debugOutput).not.toContain("hold_token");
+      expect(debugOutput).not.toContain("tok_step_up_trace");
     } finally {
       debugSpy.mockRestore();
       if (typeof process !== "undefined") {
