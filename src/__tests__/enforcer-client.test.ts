@@ -102,6 +102,36 @@ describe("enforcer-client response mapping", () => {
     expect(decision.decision).toBe("ALLOW");
   });
 
+  it("continues polling an explicitly unresolved hold", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            resolved: false,
+            resolution: null,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            resolved: true,
+            resolution: "ALLOW",
+          }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const decision = await awaitStepUpDecision(
+      buildConfig({ stepUpPollIntervalMs: 1 }),
+      "tok_pending",
+    );
+
+    expect(decision.decision).toBe("ALLOW");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("maps authorization_decision aliases and modify payload fields", async () => {
     vi.stubGlobal(
       "fetch",

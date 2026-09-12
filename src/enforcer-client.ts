@@ -428,6 +428,11 @@ export async function awaitStepUpDecision(
         };
       }
 
+      if (payload.resolved === false) {
+        await sleep(config.stepUpPollIntervalMs);
+        continue;
+      }
+
       const directDecision = toEnforcementDecision(payload);
       if (directDecision.decision !== DecisionType.STEP_UP) {
         return directDecision;
