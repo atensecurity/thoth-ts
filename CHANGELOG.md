@@ -2,6 +2,15 @@
 
 All notable changes to `@atensec/thoth` are documented in this file.
 
+## 0.1.21 - 2026-09-11
+
+### Fixed
+
+- Continue polling canonical unresolved STEP_UP hold responses until resolution
+  or the configured deadline instead of treating a missing decision field as a
+  terminal fallback block. Timeout and malformed-response handling remain
+  fail-closed.
+
 ## 0.1.20 - 2026-09-11
 
 ### Added
