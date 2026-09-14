@@ -251,6 +251,45 @@ describe("enforcer-client response mapping", () => {
     expect(body.action_attestation_id).toBe("attest-1");
   });
 
+  it.each(
+    [false, true].flatMap((failOpen) =>
+      [
+        "policy_backend_unavailable",
+        "tenant_compliance_backend_unavailable",
+      ].map((reasonCode) => ({ failOpen, reasonCode })),
+    ),
+  )(
+    "preserves HTTP 200 BLOCK for $reasonCode with failOpen=$failOpen",
+    async ({ failOpen, reasonCode }) => {
+      const payload = {
+        decision: "BLOCK",
+        authorization_decision: "DENY",
+        decision_reason_code: reasonCode,
+        reason: `${reasonCode}: retry after backend recovery`,
+      };
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const decision = await checkEnforce(
+        buildConfig({ failOpen }),
+        "read:data",
+        "sess_1",
+        ["read:data"],
+      );
+
+      expect(decision.decision).toBe("BLOCK");
+      expect(decision.authorizationDecision).toBe("DENY");
+      expect(decision.decisionReasonCode).toBe(reasonCode);
+      expect(decision.reason).toBe(payload.reason);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("allows on retryable status when failOpen is enabled", async () => {
     vi.stubGlobal(
       "fetch",
