@@ -8,7 +8,12 @@ export type {
   HumanExplanation,
   ThothConfig as InstrumentOptions,
 } from "./models.js";
-export { EnforcementMode, DecisionType, SourceType, EventType } from "./models.js";
+export {
+  EnforcementMode,
+  DecisionType,
+  SourceType,
+  EventType,
+} from "./models.js";
 
 export { emitBehavioralEvent } from "./emitter.js";
 export type { DeliveryOptions, DeliveryStatus } from "./emitter.js";

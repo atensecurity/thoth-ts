@@ -26,12 +26,12 @@ outside this boundary.
 
 ## What still leaves the process
 
-| Destination | Data |
-| --- | --- |
-| `/v1/events/batch` | Minimal evidence described above; API key in Authorization and X-Api-Key headers |
-| `/v1/enforce` | Original serialized arguments, identity binding, policy context, task context, purpose, data classification, session intent, identity/scope/history and correlation fields; API key in Authorization |
-| `/v1/explain` (BLOCK/STEP_UP) | Original serialized arguments, identity/scope/history, decision evidence and correlation fields; API key in Authorization |
-| `/v1/enforce/hold/{token}` | Hold token in URL; API key in Authorization |
+| Destination                   | Data                                                                                                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/events/batch`            | Minimal evidence described above; API key in Authorization and X-Api-Key headers                                                                                                                     |
+| `/v1/enforce`                 | Original serialized arguments, identity binding, policy context, task context, purpose, data classification, session intent, identity/scope/history and correlation fields; API key in Authorization |
+| `/v1/explain` (BLOCK/STEP_UP) | Original serialized arguments, identity/scope/history, decision evidence and correlation fields; API key in Authorization                                                                            |
+| `/v1/enforce/hold/{token}`    | Hold token in URL; API key in Authorization                                                                                                                                                          |
 
 Authorization/explanation requests can contain secrets and PHI. They continue to
 use the configured trusted tenant API. Removing telemetry content does **not**

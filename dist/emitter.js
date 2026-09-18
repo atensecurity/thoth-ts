@@ -24,9 +24,15 @@ export async function emitBehavioralEvent(event, apiUrl, apiKey, options = {}) {
             });
             await response.body?.cancel();
             if (response.ok) {
-                return { eventId: event.eventId, state: "delivered", attempts: attempt };
+                return {
+                    eventId: event.eventId,
+                    state: "delivered",
+                    attempts: attempt,
+                };
             }
-            const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+            const retryable = response.status === 408 ||
+                response.status === 429 ||
+                response.status >= 500;
             if (!retryable || attempt === maxAttempts) {
                 console.warn("thoth: telemetry ingest rejected; dropping event_id=%s status=%s attempts=%s", event.eventId, response.status, attempt);
                 return { eventId: event.eventId, state: "dropped", attempts: attempt };

@@ -8,30 +8,61 @@ const CONTENT = {
     [EventType.TOOL_CALL_BLOCK]: "tool invocation blocked",
 };
 const STRING_FIELDS = [
-    "sdk_language", "environment", "enforcement_trace_id", "action_attestation_id",
-    "decision_id", "event_phase", "authorization_decision", "decision_reason_code",
-    "action_classification", "pack_id", "pack_version", "result_type",
+    "sdk_language",
+    "environment",
+    "enforcement_trace_id",
+    "action_attestation_id",
+    "decision_id",
+    "event_phase",
+    "authorization_decision",
+    "decision_reason_code",
+    "action_classification",
+    "pack_id",
+    "pack_version",
+    "result_type",
 ];
 const NUMBER_FIELDS = [
-    "duration_ms", "result_size_bytes", "risk_score", "latency_ms", "rule_version",
-    "defer_timeout_seconds", "step_up_timeout_seconds",
+    "duration_ms",
+    "result_size_bytes",
+    "risk_score",
+    "latency_ms",
+    "rule_version",
+    "defer_timeout_seconds",
+    "step_up_timeout_seconds",
 ];
-const ID_LIST_FIELDS = ["regulatory_regimes", "matched_rule_ids", "matched_control_ids"];
+const ID_LIST_FIELDS = [
+    "regulatory_regimes",
+    "matched_rule_ids",
+    "matched_control_ids",
+];
 function stringList(value) {
-    return Array.isArray(value) ? value.filter((item) => typeof item === "string") : undefined;
+    return Array.isArray(value)
+        ? value.filter((item) => typeof item === "string")
+        : undefined;
 }
 // Only known categorical/count signals are telemetry. Unknown signals may
 // contain excerpts. This is a vocabulary check, not a PHI/secret detector.
 const RISK_CATEGORIES = new Set([
-    "prompt_injection", "sensitive_information_disclosure", "supply_chain",
-    "data_model_poisoning", "improper_output_handling", "excessive_agency",
-    "system_prompt_leakage", "vector_embedding_weaknesses", "misinformation",
+    "prompt_injection",
+    "sensitive_information_disclosure",
+    "supply_chain",
+    "data_model_poisoning",
+    "improper_output_handling",
+    "excessive_agency",
+    "system_prompt_leakage",
+    "vector_embedding_weaknesses",
+    "misinformation",
     "unbounded_consumption",
 ]);
 const FIXED_SIGNALS = new Set([
-    "threat:prompt_injection", "fastml:unavailable", "moses_sync:unavailable",
-    "moses_schema_guardrail:triggered", "attestation:present", "attestation:missing",
-    "attestation:proof_complete", "attestation:proof_incomplete",
+    "threat:prompt_injection",
+    "fastml:unavailable",
+    "moses_sync:unavailable",
+    "moses_schema_guardrail:triggered",
+    "attestation:present",
+    "attestation:missing",
+    "attestation:proof_complete",
+    "attestation:proof_incomplete",
     "probabilistic_verifier:enabled",
 ]);
 function securitySignal(value) {
@@ -48,16 +79,19 @@ function securitySignal(value) {
     const parts = value.split(":");
     const confidence = (score) => score !== undefined && /^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(score);
     if (parts[0] === "threat" && parts.length === 3) {
-        return ["prompt_injection_pattern", "tool_output_poisoning"].includes(parts[1]) && confidence(parts[2]);
+        return (["prompt_injection_pattern", "tool_output_poisoning"].includes(parts[1]) && confidence(parts[2]));
     }
     if (["moses_risk", "moses_risk_classification"].includes(parts[0])) {
         return parts.length === 2 && RISK_CATEGORIES.has(parts[1]);
     }
     if (parts[0] === "moses_risk_conf") {
-        return parts.length === 3 && RISK_CATEGORIES.has(parts[1]) && confidence(parts[2]);
+        return (parts.length === 3 &&
+            RISK_CATEGORIES.has(parts[1]) &&
+            confidence(parts[2]));
     }
-    return ["moses_confidence", "probabilistic_verifier_upper_bound"].includes(parts[0]) &&
-        parts.length === 2 && confidence(parts[1]);
+    return (["moses_confidence", "probabilistic_verifier_upper_bound"].includes(parts[0]) &&
+        parts.length === 2 &&
+        confidence(parts[1]));
 }
 /** Allowlisted wire representation. Identifiers and policy codes must be opaque,
  * non-sensitive values supplied by the application/enforcer (see PRIVACY.md).
@@ -84,7 +118,10 @@ export function telemetryEvent(event) {
         metadata.model_signals = signals.filter(securitySignal);
     // Retain correlation to the full receipt without exporting its arbitrary body.
     const receipt = source.receipt;
-    if (receipt && typeof receipt === "object" && "decision_id" in receipt && typeof receipt.decision_id === "string") {
+    if (receipt &&
+        typeof receipt === "object" &&
+        "decision_id" in receipt &&
+        typeof receipt.decision_id === "string") {
         metadata.decision_id = receipt.decision_id;
     }
     if (event.toolName)

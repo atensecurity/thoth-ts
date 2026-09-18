@@ -25,21 +25,34 @@ describe("emitBehavioralEvent", () => {
         const bodies = [];
         const fetchMock = vi.fn().mockImplementation((_url, init) => {
             bodies.push(String(init.body));
-            return Promise.resolve({ ok: bodies.length === 3, status: bodies.length === 3 ? 202 : 503 });
+            return Promise.resolve({
+                ok: bodies.length === 3,
+                status: bodies.length === 3 ? 202 : 503,
+            });
         });
         vi.stubGlobal("fetch", fetchMock);
         const status = await emitBehavioralEvent(sampleEvent(), "https://example.test", "test-key", { maxAttempts: 3, retryDelayMs: 0 });
-        expect(status).toEqual({ eventId: "evt_123", state: "delivered", attempts: 3 });
+        expect(status).toEqual({
+            eventId: "evt_123",
+            state: "delivered",
+            attempts: 3,
+        });
         expect(bodies).toHaveLength(3);
         expect(bodies.map((body) => JSON.parse(body).events[0].eventId)).toEqual([
-            "evt_123", "evt_123", "evt_123",
+            "evt_123",
+            "evt_123",
+            "evt_123",
         ]);
     });
     it("reports dropped after bounded transport retries", async () => {
         vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
         vi.spyOn(console, "error").mockImplementation(() => { });
         const status = await emitBehavioralEvent(sampleEvent(), "https://example.test", "test-key", { maxAttempts: 2, retryDelayMs: 0 });
-        expect(status).toEqual({ eventId: "evt_123", state: "dropped", attempts: 2 });
+        expect(status).toEqual({
+            eventId: "evt_123",
+            state: "dropped",
+            attempts: 2,
+        });
     });
     it("sends both Authorization and X-Api-Key headers", async () => {
         const fetchMock = vi.fn().mockResolvedValue({
@@ -90,7 +103,11 @@ describe("telemetry privacy boundary", () => {
             purpose: "synthetic-secret",
             receipt: { payload: { toJSON }, decision_id: "decision-123" },
             risk_score: 92,
-            model_signals: ["classification:phi", "dlp_redactions:2", "patient:synthetic-secret"],
+            model_signals: [
+                "classification:phi",
+                "dlp_redactions:2",
+                "patient:synthetic-secret",
+            ],
             matched_rule_ids: ["rule-123", { toJSON }],
             latency_ms: Infinity,
         };
@@ -103,7 +120,10 @@ describe("telemetry privacy boundary", () => {
         const sent = JSON.parse(raw).events[0];
         expect(sent.metadata.risk_score).toBe(92);
         expect(sent.metadata.decision_id).toBe("decision-123");
-        expect(sent.metadata.model_signals).toEqual(["classification:phi", "dlp_redactions:2"]);
+        expect(sent.metadata.model_signals).toEqual([
+            "classification:phi",
+            "dlp_redactions:2",
+        ]);
         expect(sent.metadata.matched_rule_ids).toEqual(["rule-123"]);
         expect(sent.metadata.latency_ms).toBeUndefined();
         expect(event.content).toBe("synthetic-secret");
@@ -112,18 +132,31 @@ describe("telemetry privacy boundary", () => {
 });
 it("retains categorical threat evidence consumed by governance reports", async () => {
     const signals = [
-        "threat:prompt_injection", "threat:prompt_injection_pattern:0.80",
-        "threat:tool_output_poisoning:0.90", "moses_risk:prompt_injection",
+        "threat:prompt_injection",
+        "threat:prompt_injection_pattern:0.80",
+        "threat:tool_output_poisoning:0.90",
+        "moses_risk:prompt_injection",
         "moses_risk_classification:sensitive_information_disclosure",
-        "moses_risk_conf:improper_output_handling:0.95", "fastml:unavailable",
-        "attestation:missing", "moses_schema_guardrail:triggered",
+        "moses_risk_conf:improper_output_handling:0.95",
+        "fastml:unavailable",
+        "attestation:missing",
+        "moses_schema_guardrail:triggered",
     ];
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
-    await emitBehavioralEvent({ ...sampleEvent(), metadata: { model_signals: [
-                ...signals, "threat:patient-secret", "threat:prompt_injection:patient-secret",
-                "moses_risk:patient-secret", "moses_risk_conf:prompt_injection:patient-secret",
-            ] } }, "http://localhost", "synthetic-key");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).events[0].metadata.model_signals).toEqual(signals);
+    await emitBehavioralEvent({
+        ...sampleEvent(),
+        metadata: {
+            model_signals: [
+                ...signals,
+                "threat:patient-secret",
+                "threat:prompt_injection:patient-secret",
+                "moses_risk:patient-secret",
+                "moses_risk_conf:prompt_injection:patient-secret",
+            ],
+        },
+    }, "http://localhost", "synthetic-key");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).events[0].metadata
+        .model_signals).toEqual(signals);
 });
 //# sourceMappingURL=emitter.test.js.map
