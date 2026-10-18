@@ -444,6 +444,70 @@ export function instrument(agent, config) {
     const tools = agent.tools;
     if (!Array.isArray(tools))
         return agent;
+    if (typeof process === "undefined" ||
+        process.env?.THOTH_TOOL_INVENTORY?.toLowerCase() !== "off") {
+        // Defer metadata conversion as well as transport; neither can break startup.
+        void Promise.resolve()
+            .then(() => {
+            const strip = (value, depth = 0, namedMap = false) => {
+                if (depth > 32)
+                    throw new Error("schema too deep");
+                if (Array.isArray(value))
+                    return value.map((item) => strip(item, depth + 1));
+                if (value && typeof value === "object")
+                    return Object.fromEntries(Object.entries(value)
+                        .filter(([key]) => namedMap ||
+                        ![
+                            "default",
+                            "examples",
+                            "example",
+                            "const",
+                            "enum",
+                        ].includes(key))
+                        .map(([key, item]) => [
+                        key,
+                        strip(item, depth + 1, !namedMap &&
+                            [
+                                "properties",
+                                "patternProperties",
+                                "$defs",
+                                "definitions",
+                            ].includes(key)),
+                    ]));
+                return value;
+            };
+            for (let offset = 0; offset < tools.length; offset += 100) {
+                try {
+                    const inventory = tools
+                        .slice(offset, offset + 100)
+                        .map((tool) => ({
+                        name: String(tool.name ?? ""),
+                        description: String(tool.description ?? "").slice(0, 4096),
+                        input_schema: strip(tool.inputSchema ?? tool.input_schema ?? {}),
+                    }))
+                        .filter((tool) => tool.name);
+                    const body = JSON.stringify({
+                        agent_id: cfg.agentId,
+                        source: "typescript_sdk",
+                        tools: inventory,
+                    });
+                    void fetch(`${apiUrl.replace(/\/$/, "")}/${encodeURIComponent(cfg.tenantId)}/thoth/tool-inventory`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            ...(cfg.apiKey ? { "x-api-key": cfg.apiKey } : {}),
+                        },
+                        body,
+                        signal: AbortSignal.timeout(2000),
+                    }).catch(() => undefined);
+                }
+                catch {
+                    /* Advisory metadata must not affect instrumentation. */
+                }
+            }
+        })
+            .catch(() => undefined);
+    }
     const llmInvocationEvent = {
         eventId: tenantScopedEventId(cfg.tenantId),
         eventType: EventType.LLM_INVOCATION,

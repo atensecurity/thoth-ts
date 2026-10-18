@@ -31,6 +31,112 @@ class FakeStreamingAgent {
 describe("instrument()", () => {
   const apiUrl = "https://enforce.trantor.atensecurity.com";
 
+  it("publishes tool metadata without decision class claims", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const tool = {
+      name: "orders.delete",
+      description: "Delete an order",
+      inputSchema: { type: "object" },
+      run: () => "result",
+    };
+    instrument(
+      { tools: [tool] },
+      {
+        agentId: "agent",
+        tenantId: "tenant",
+        apiUrl,
+        apiKey: "runtime-key",
+        approvedScope: [],
+      },
+    );
+    await Promise.resolve();
+    const inventoryCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/tenant/thoth/tool-inventory"),
+    );
+    expect(inventoryCall).toBeDefined();
+    const payload = JSON.parse(inventoryCall![1].body);
+    expect(payload.source).toBe("typescript_sdk");
+    expect(payload.tools).toEqual([
+      {
+        name: "orders.delete",
+        description: "Delete an order",
+        input_schema: { type: "object" },
+      },
+    ]);
+    expect(payload.tools[0].classes).toBeUndefined();
+  });
+
+  it("cannot throw from circular or BigInt schemas and supports opt-out", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    for (const inputSchema of [circular, { value: 1n }]) {
+      expect(() =>
+        instrument(
+          { tools: [{ name: "opaque", inputSchema, run: () => "ok" }] },
+          { agentId: "a", tenantId: "t", apiUrl, approvedScope: [] },
+        ),
+      ).not.toThrow();
+      await Promise.resolve();
+    }
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("tool-inventory"),
+      ),
+    ).toHaveLength(0);
+    vi.stubEnv("THOTH_TOOL_INVENTORY", "off");
+    instrument(new FakeAgent(), {
+      agentId: "a",
+      tenantId: "t",
+      apiUrl,
+      approvedScope: [],
+    });
+    await Promise.resolve();
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("tool-inventory"),
+      ),
+    ).toHaveLength(0);
+    vi.unstubAllEnvs();
+  });
+
+  it("preserves a parameter named default and works without process", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("process", undefined);
+    try {
+      expect(() =>
+        instrument(
+          {
+            tools: [
+              {
+                name: "docs",
+                inputSchema: {
+                  properties: {
+                    default: { type: "string", default: "secret" },
+                  },
+                },
+                run: () => "ok",
+              },
+            ],
+          },
+          { agentId: "a", tenantId: "t", apiUrl, approvedScope: [] },
+        ),
+      ).not.toThrow();
+      await Promise.resolve();
+      const call = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("tool-inventory"),
+      );
+      expect(
+        JSON.parse(call![1].body).tools[0].input_schema.properties.default,
+      ).toEqual({ type: "string" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("returns the same agent object", () => {
     const agent = new FakeAgent();
     const result = instrument(agent, {
@@ -676,9 +782,8 @@ describe("instrument()", () => {
       process.env.THOTH_ENVIRONMENT = "dev";
     }
     vi.resetModules();
-    const { instrument: instrumentWithEnvFallback } = await import(
-      "../instrumentor.js"
-    );
+    const { instrument: instrumentWithEnvFallback } =
+      await import("../instrumentor.js");
 
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/v1/enforce")) {

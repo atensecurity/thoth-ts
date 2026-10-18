@@ -73,3 +73,7 @@ SDK logs while requiring original authorization/explanation inputs and retained
 evidence. It checks ALLOW, BLOCK, DEFER, MODIFY, STEP_UP, OBSERVE, thrown errors,
 streaming tools and both provider wrappers. This is a live local HTTP test of the
 installed artifact, not a deployed-service or external-provider validation.
+
+## Advisory tool inventory
+
+Instrumentation sends tool names, descriptions, and input-schema structure with tenant and agent IDs to your configured Thoth API. Schema `default`, `example`, `examples`, `const`, and `enum` values are removed recursively. Descriptions and other schema text may still contain sensitive information: avoid embedding secrets in tool metadata. Set `THOTH_TOOL_INVENTORY=off` to disable inventory collection without disabling runtime enforcement. Uploads run in the background and do not grant execution authority.
