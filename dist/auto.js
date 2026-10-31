@@ -25,6 +25,13 @@
  *   A call a governed framework tool already checked (the same arguments,
  *   under the MCP tool's name or a prefixed form of it) isn't checked twice.
  *   A refusal rejects with ThothPolicyViolation and nothing is sent.
+ * - Strands Agents tools, at the tool executor every agent-loop call runs
+ *   through, and direct `agent.tool.<name>()` calls. The tool runs inside the
+ *   check and its events still stream; a refusal ends the call with an error
+ *   tool result, "Thoth refused this call: <reason>".
+ * - Google ADK tools, each governed as `LlmAgent.canonicalTools()` hands it
+ *   to the agent, so your own `BaseTool` subclasses are governed too. A
+ *   refusal throws ThothPolicyViolation from `runAsync`.
  *
  * Frameworks whose tools are plain objects or functions (the AI SDK, OpenAI
  * Agents, Mastra, Genkit, the Claude Agent SDK) have no shared method to
@@ -258,8 +265,235 @@ async function installMcpClient() {
         Client.prototype.callTool = original;
     };
 }
+// --- Streaming tools ---------------------------------------------------------
+/**
+ * Runs a streaming tool inside its Thoth check and hands its events on as
+ * they come. `start(checked)` starts the tool with exactly the arguments Thoth
+ * checked; the whole stream runs inside the checked call, so Thoth records
+ * the tool's real outcome after it ends. The tool and the consumer move in
+ * lockstep: the tool waits until each event has been handed on and the next
+ * one asked for, so events stream as they would without Thoth. A refusal
+ * throws ThothPolicyViolation before any event; a consumer that stops early
+ * stops the tool too.
+ */
+async function* streamChecked(rt, name, args, tool, start) {
+    const queue = [];
+    let wake;
+    let finished = false;
+    let stopped = false;
+    // Set by the task's callbacks; read once the task has settled.
+    const settled = {
+        outcome: { ok: false, error: new Error("tool stream did not finish") },
+    };
+    const notify = () => {
+        const resume = wake;
+        wake = undefined;
+        resume?.();
+    };
+    const task = checkThenRun(rt, name, args, tool, async (checked) => {
+        const stream = start(checked);
+        let next = await stream.next();
+        while (!next.done) {
+            if (stopped) {
+                await stream.return?.(undefined);
+                throw new Error("tool stream closed early");
+            }
+            const value = next.value;
+            await new Promise((ack) => {
+                queue.push({ value, ack });
+                notify();
+            });
+            next = await stream.next();
+        }
+        return next.value;
+    }).then((value) => {
+        settled.outcome = { ok: true, value: value };
+    }, (error) => {
+        settled.outcome = { ok: false, error };
+    });
+    void task.finally(() => {
+        finished = true;
+        notify();
+    });
+    try {
+        for (;;) {
+            const item = queue.shift();
+            if (item) {
+                yield item.value;
+                item.ack();
+                continue;
+            }
+            if (finished)
+                break;
+            await new Promise((resume) => {
+                wake = resume;
+            });
+        }
+        await task;
+        const { outcome } = settled;
+        if (!outcome.ok)
+            throw outcome.error;
+        return outcome.value;
+    }
+    finally {
+        // A consumer that stops early (or throws) stops the tool too.
+        stopped = true;
+        for (const item of queue.splice(0))
+            item.ack();
+    }
+}
+async function installStrands() {
+    const sdk = await load("@strands-agents/sdk");
+    const Concurrent = sdk?.ConcurrentToolExecutor;
+    const Agent = sdk?.Agent;
+    const ToolResultBlock = sdk?.ToolResultBlock;
+    const TextBlock = sdk?.TextBlock;
+    if (!Concurrent || !Agent || !ToolResultBlock || !TextBlock)
+        return undefined;
+    // The executors share one base class, which runs every agent-loop tool call.
+    const executor = Object.getPrototypeOf(Concurrent.prototype);
+    const executeToolCore = executor._executeToolCore;
+    const toolGetter = Object.getOwnPropertyDescriptor(Agent.prototype, "tool")?.get;
+    if (typeof executeToolCore !== "function" ||
+        typeof toolGetter !== "function") {
+        // A version without both entry points isn't governed at all, never halfway.
+        return undefined;
+    }
+    const refusal = (toolUse, reason) => new ToolResultBlock({
+        toolUseId: toolUse.toolUseId,
+        status: "error",
+        content: [new TextBlock(`Thoth refused this call: ${reason}`)],
+    });
+    /** Governs one call, given how to run it with a checked tool use. */
+    async function* governed(tool, toolUse, run) {
+        const rt = runtime;
+        if (!rt || !tool)
+            return yield* run(toolUse);
+        const name = toolUse.name;
+        const args = toolUse.input ?? {};
+        if (typeof name !== "string" ||
+            !name ||
+            typeof args !== "object" ||
+            args === null) {
+            return refusal(toolUse, "the call can't be checked, so it was not run");
+        }
+        if (claimCheckedCall(name, args))
+            return yield* run(toolUse);
+        try {
+            return yield* streamChecked(rt, name, args, { description: tool.description, schema: tool.inputSchema }, 
+            // Exactly the input Thoth checked.
+            (checked) => run({ ...toolUse, input: checked }));
+        }
+        catch (error) {
+            if (error instanceof ThothPolicyViolation)
+                return refusal(toolUse, error.reason);
+            throw error;
+        }
+    }
+    executor._executeToolCore = function (...args) {
+        const [options, effectiveTool, toolUse, ...rest] = args;
+        return governed(effectiveTool, toolUse, (checked) => executeToolCore.call(this, options, effectiveTool, checked, ...rest));
+    };
+    const patched = {};
+    Object.defineProperty(Agent.prototype, "tool", {
+        configurable: true,
+        get() {
+            const caller = toolGetter.call(this);
+            if (!patched.prototype && caller) {
+                const prototype = Object.getPrototypeOf(caller);
+                const original = prototype?._executeTool;
+                if (prototype && typeof original === "function") {
+                    patched.prototype = prototype;
+                    patched.original = original;
+                    prototype._executeTool = function (...args) {
+                        const [tool, toolContext] = args;
+                        return governed(tool, toolContext.toolUse, (checked) => original.call(this, tool, {
+                            ...toolContext,
+                            toolUse: checked,
+                        }));
+                    };
+                }
+            }
+            return caller;
+        },
+    });
+    return () => {
+        executor._executeToolCore = executeToolCore;
+        Object.defineProperty(Agent.prototype, "tool", {
+            configurable: true,
+            get: toolGetter,
+        });
+        if (patched.prototype && patched.original) {
+            patched.prototype._executeTool = patched.original;
+        }
+    };
+}
+// --- Google ADK --------------------------------------------------------------
+const ADK_GOVERNED = Symbol.for("thoth.adk.governed");
+/** Governs one ADK tool instance's runAsync; a no-op once governed. */
+function governAdkInstance(tool) {
+    if (!tool || typeof tool !== "object" || tool[ADK_GOVERNED])
+        return;
+    const runAsync = tool.runAsync;
+    if (typeof runAsync !== "function")
+        return;
+    // Set on the instance, so a subclass's own runAsync is governed too.
+    Object.defineProperty(tool, "runAsync", {
+        configurable: true,
+        writable: true,
+        value: function (request) {
+            const rt = runtime;
+            // After shutdown(), tools run as they did before init().
+            if (!rt)
+                return runAsync.call(this, request);
+            const name = this.name;
+            const args = request?.args ?? {};
+            if (typeof name !== "string" ||
+                !name ||
+                typeof args !== "object" ||
+                args === null) {
+                return Promise.reject(new ThothPolicyViolation(String(name ?? ""), "the call can't be checked, so it was not run"));
+            }
+            if (claimCheckedCall(name, args))
+                return runAsync.call(this, request);
+            let schema;
+            try {
+                const declaration = this._getDeclaration?.();
+                schema = declaration?.parametersJsonSchema ?? declaration?.parameters;
+            }
+            catch {
+                // Advisory metadata must never affect governance.
+            }
+            return checkThenRun(rt, name, args, { description: this.description, schema }, (checked) => 
+            // Exactly the arguments Thoth checked; the tool context passes through.
+            runAsync.call(this, { ...request, args: checked }));
+        },
+    });
+    Object.defineProperty(tool, ADK_GOVERNED, { value: true });
+}
+async function installGoogleAdk() {
+    const adk = await load("@google/adk");
+    const LlmAgent = adk?.LlmAgent;
+    const canonicalTools = LlmAgent?.prototype?.canonicalTools;
+    if (!LlmAgent || typeof canonicalTools !== "function")
+        return undefined;
+    // Every tool an ADK agent can call comes from canonicalTools, so each is
+    // governed there, whatever its class.
+    LlmAgent.prototype.canonicalTools = async function (...args) {
+        const tools = await canonicalTools.apply(this, args);
+        if (runtime)
+            for (const tool of tools)
+                governAdkInstance(tool);
+        return tools;
+    };
+    return () => {
+        LlmAgent.prototype.canonicalTools = canonicalTools;
+    };
+}
 const HOOKS = {
     langchain: installLangChain,
     mcp_client: installMcpClient,
+    strands: installStrands,
+    google_adk: installGoogleAdk,
 };
 //# sourceMappingURL=auto.js.map

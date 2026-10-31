@@ -25,6 +25,13 @@
  *   A call a governed framework tool already checked (the same arguments,
  *   under the MCP tool's name or a prefixed form of it) isn't checked twice.
  *   A refusal rejects with ThothPolicyViolation and nothing is sent.
+ * - Strands Agents tools, at the tool executor every agent-loop call runs
+ *   through, and direct `agent.tool.<name>()` calls. The tool runs inside the
+ *   check and its events still stream; a refusal ends the call with an error
+ *   tool result, "Thoth refused this call: <reason>".
+ * - Google ADK tools, each governed as `LlmAgent.canonicalTools()` hands it
+ *   to the agent, so your own `BaseTool` subclasses are governed too. A
+ *   refusal throws ThothPolicyViolation from `runAsync`.
  *
  * Frameworks whose tools are plain objects or functions (the AI SDK, OpenAI
  * Agents, Mastra, Genkit, the Claude Agent SDK) have no shared method to

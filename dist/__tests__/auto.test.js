@@ -64,7 +64,12 @@ afterEach(() => {
 describe("init", () => {
     it("governs the frameworks installed here", async () => {
         fakeThoth();
-        expect(await init()).toEqual(["langchain", "mcp_client"]);
+        expect(await init()).toEqual([
+            "langchain",
+            "mcp_client",
+            "strands",
+            "google_adk",
+        ]);
     });
     it("checks a LangChain tool defined before init(), for the actingFor user", async () => {
         const thoth = fakeThoth();

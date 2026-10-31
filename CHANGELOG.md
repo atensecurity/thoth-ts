@@ -17,6 +17,15 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ### Added
 
+- `init()` now also governs Strands Agents and Google ADK. For Strands, every
+  agent-loop tool call and every direct `agent.tool.<name>()` call is checked
+  with exactly the input that runs; a streaming tool runs inside the check
+  and its events still stream as they come, and a refused call ends with an
+  error tool result, "Thoth refused this call: <reason>". For ADK, each tool
+  an `LlmAgent` uses is governed as the agent resolves its tools, so your own
+  `BaseTool` subclasses are governed too; a refused call throws
+  `ThothPolicyViolation` from `runAsync`. Tested with `@strands-agents/sdk` 1.23.0
+  and `@google/adk` 2.4.0.
 - `init()` and `actingFor()`: one call at startup governs every LangChain.js
   and LangGraph.js tool and every MCP client call (`@modelcontextprotocol/sdk`)
   in the process, including tools and clients created before it, with no

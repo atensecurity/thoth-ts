@@ -82,16 +82,16 @@ const result = await governed.run(
 );
 ```
 
-**Or, for LangChain.js, LangGraph.js and MCP clients: one call, no tool changes.**
+**Or, for supported frameworks: one call, no tool changes.**
 
 ```typescript
 import { init, actingFor } from "@atensec/thoth";
 
 await init(); // reads THOTH_AGENT_ID, THOTH_TENANT_ID, THOTH_API_URL, THOTH_API_KEY
 
-// Every LangChain tool (including those LangGraph's ToolNode runs) and every
-// MCP client call in the process is now checked before it runs, including
-// tools and clients created before init(). Run each request for the user it serves:
+// Every tool of each supported framework in the process is now checked before
+// it runs, including tools created before init(). Run each request for the
+// user it serves:
 app.post("/chat", (req, res) =>
   actingFor(req.user.email, () =>
     graph.invoke({ messages: req.body.messages }),
@@ -99,16 +99,28 @@ app.post("/chat", (req, res) =>
 );
 ```
 
+`init()` governs these frameworks, whichever are installed:
+
+- LangChain.js and LangGraph.js (including the tools LangGraph's `ToolNode` runs)
+- MCP clients (`@modelcontextprotocol/sdk`)
+- Strands Agents (the agent loop and direct `agent.tool.<name>()` calls;
+  streaming tools still stream)
+- Google ADK (every tool an `LlmAgent` uses, including your own `BaseTool`
+  subclasses)
+
 `actingFor(userId, fn, { sessionId })` gives the block its own Thoth session;
 blocks naming the same `sessionId` for the same user share its tool-call
-history. A refused call throws `ThothPolicyViolation` and the tool never runs
-(an MCP call is never sent). An MCP call that a governed LangChain tool already
-checked, with the same arguments under the MCP tool's name or a prefixed form
-of it, isn't checked twice. `init()` patches the copy of each framework that
-Node resolves from `@atensec/thoth`; an app bundled with its own copy (some
-Next.js and edge builds) isn't governed by it, so use the `govern*` functions
-below there. Frameworks whose tools are plain objects (the AI SDK, OpenAI
-Agents, Mastra, Genkit, the Claude Agent SDK) are governed with their `govern*`
+history. A refused call never runs: LangChain.js, MCP and ADK throw
+`ThothPolicyViolation` (an MCP call is never sent), and Strands ends the call
+with an error tool result, "Thoth refused this call: <reason>". An MCP call
+that a governed tool already checked, with the same arguments under the MCP
+tool's name or a prefixed form of it, isn't checked twice. `init()` patches the
+copy of each framework that Node resolves from `@atensec/thoth`; an app
+bundled with its own copy (some Next.js and edge builds), or one that loads a
+framework with `require()` when it ships separate CommonJS and ES module
+builds (ADK does), isn't governed by it, so use the `govern*` functions below
+there. Frameworks whose tools are plain objects (the AI SDK, OpenAI Agents,
+Mastra, Genkit, the Claude Agent SDK) are governed with their `govern*`
 functions.
 
 ---
