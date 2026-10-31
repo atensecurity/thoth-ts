@@ -19,4 +19,6 @@ export { governLangChainTools } from "./integrations/langchain.js";
 export type { LangChainToolLike } from "./integrations/langchain.js";
 export { governMastraTools } from "./integrations/mastra.js";
 export type { MastraToolLike } from "./integrations/mastra.js";
+export { governOpenAIAgentTools } from "./integrations/openai-agents.js";
+export type { OpenAIAgentToolLike } from "./integrations/openai-agents.js";
 //# sourceMappingURL=index.d.ts.map

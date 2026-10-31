@@ -13,4 +13,5 @@ export { governMcpClient } from "./integrations/mcp.js";
 export { governClaudeAgentOptions } from "./integrations/claude-agent-sdk.js";
 export { governLangChainTools } from "./integrations/langchain.js";
 export { governMastraTools } from "./integrations/mastra.js";
+export { governOpenAIAgentTools } from "./integrations/openai-agents.js";
 //# sourceMappingURL=index.js.map

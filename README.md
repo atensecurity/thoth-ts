@@ -294,6 +294,35 @@ while (true) {
 }
 ```
 
+### OpenAI Agents SDK
+
+`governOpenAIAgentTools` governs an agent's function tools (`tool()` from
+`@openai/agents`). Each call is checked with the arguments the model sent,
+before the tool runs.
+
+```typescript
+import { Agent, run } from "@openai/agents";
+import { governOpenAIAgentTools } from "@atensec/thoth/openai-agents";
+
+const agent = new Agent({
+  name: "trader",
+  instructions: "Trade carefully.",
+  tools: governOpenAIAgentTools([listOrders, wireFunds], {
+    agentId: "trader",
+    tenantId: process.env.THOTH_TENANT_ID!,
+    approvedScope: [],
+    userId: request.user.email,
+  }),
+});
+await run(agent, "What's open on A-1?");
+```
+
+A refused call never runs: the model gets `Thoth refused this call: <reason>`
+as the tool's output, as the SDK reports any tool error, and Thoth records the
+refusal. Hosted tools (web search, file search, code interpreter) run at
+OpenAI and are left as they are. The tools passed in are unchanged, so govern
+them per run or request.
+
 ### Mastra
 
 `governMastraTools` governs the tools you give a Mastra `Agent`. Each call is
