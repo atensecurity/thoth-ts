@@ -52,4 +52,13 @@ export declare function shutdown(): void;
 export declare function actingFor<T>(userId: string, fn: () => T, options?: {
     sessionId?: string;
 }): T;
+/**
+ * The session ID Thoth sees for a caller-named session. The caller's ID is
+ * only unique within one user's sessions, so two users naming the same ID
+ * must never share a session in Thoth: the ID sent is derived from the
+ * tenant, agent, user and the caller's ID. It is stable across processes, so
+ * a later request resuming the session continues it, and the Python SDK
+ * derives the same ID.
+ */
+export declare function namedSessionId(config: Pick<ThothConfig, "tenantId" | "agentId">, userId: string, sessionId: string): string;
 //# sourceMappingURL=auto.d.ts.map

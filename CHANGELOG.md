@@ -6,6 +6,10 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ### Fixed
 
+- `actingFor(userId, fn, { sessionId })`: Thoth now sees a session ID derived
+  from the tenant, agent, user and your session ID, rather than your ID
+  itself, so two users who name the same session never share one in Thoth.
+  The ID is stable across processes, and the Python SDK derives the same ID.
 - README: the LangChain.js example passed an `AgentExecutor` to `instrument()`,
   which wraps tools with a `.run` method. LangChain.js tools have none, so no
   tool in that example was governed. The section now uses

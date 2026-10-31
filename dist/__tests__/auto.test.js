@@ -4,10 +4,13 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { actingFor, init, shutdown } from "../auto.js";
+import { actingFor, init, namedSessionId, shutdown } from "../auto.js";
 import { ThothPolicyViolation } from "../models.js";
 import { apiUrl, fakeThoth } from "./fake-thoth.js";
 const ran = [];
+// Tenant acme, agent trader, user alice@acme.test, session conv-1; the
+// Python SDK's tests use the same vector.
+const SHARED_VECTOR = "b4541a04-7924-c176-3889-86833d84ef0f";
 // Defined at import time, before init(), as agents usually are.
 const listOrders = tool(async ({ account }) => {
     ran.push(`list_orders:${account}`);
@@ -175,13 +178,21 @@ describe("init", () => {
         });
         await actingFor("alice@acme.test", () => echo.invoke("next"));
         const [first, second, bob, fresh] = thoth.checks;
-        expect(first.session_id).toBe("conv-1");
-        expect(second.session_id).toBe("conv-1");
+        // The ID Thoth sees is derived per user, never the caller's ID itself,
+        // so two users naming the same session never share one in Thoth.
+        expect(first.session_id).toBe(SHARED_VECTOR);
+        expect(second.session_id).toBe(SHARED_VECTOR);
+        expect(bob.session_id).not.toBe(first.session_id);
+        expect(bob.session_id).not.toBe("conv-1");
         // A check's history includes the call being checked.
         expect(second.session_tool_calls).toEqual(["list_orders", "echo"]);
         expect(bob.session_tool_calls).toEqual(["echo"]);
         expect(fresh.session_tool_calls).toEqual(["echo"]);
-        expect(fresh.session_id).not.toBe("conv-1");
+        expect(fresh.session_id).not.toBe(first.session_id);
+    });
+    it("derives the same named session ID as the Python SDK", () => {
+        expect(namedSessionId({ tenantId: "acme", agentId: "trader" }, "alice@acme.test", "conv-1")).toBe(SHARED_VECTOR);
+        expect(namedSessionId({ tenantId: "other", agentId: "trader" }, "alice@acme.test", "conv-1")).not.toBe(SHARED_VECTOR);
     });
     it("restores the frameworks on shutdown", async () => {
         const client = await mcpClient();

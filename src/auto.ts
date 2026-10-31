@@ -39,6 +39,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 
 import {
   claimCheckedCall,
@@ -157,6 +158,33 @@ export function actingFor<T>(
   );
 }
 
+/**
+ * The session ID Thoth sees for a caller-named session. The caller's ID is
+ * only unique within one user's sessions, so two users naming the same ID
+ * must never share a session in Thoth: the ID sent is derived from the
+ * tenant, agent, user and the caller's ID. It is stable across processes, so
+ * a later request resuming the session continues it, and the Python SDK
+ * derives the same ID.
+ */
+export function namedSessionId(
+  config: Pick<ThothConfig, "tenantId" | "agentId">,
+  userId: string,
+  sessionId: string,
+): string {
+  const hex = createHash("sha256")
+    .update(
+      [
+        "thoth-named-session-v1",
+        config.tenantId,
+        config.agentId,
+        userId,
+        sessionId,
+      ].join("\u0000"),
+    )
+    .digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 function sessionFor(
   rt: Runtime,
   userId: string,
@@ -170,7 +198,9 @@ function sessionFor(
   if (session) {
     rt.named.delete(key);
   } else {
-    session = openSession(config, { sessionId });
+    session = openSession(config, {
+      sessionId: namedSessionId(rt.config, userId, sessionId),
+    });
   }
   rt.named.set(key, session);
   while (rt.named.size > MAX_NAMED_SESSIONS) {
