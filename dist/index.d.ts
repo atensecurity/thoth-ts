@@ -13,4 +13,6 @@ export { governAiSdkTools } from "./integrations/ai-sdk.js";
 export type { AiSdkTool } from "./integrations/ai-sdk.js";
 export { governMcpClient } from "./integrations/mcp.js";
 export type { McpClientLike } from "./integrations/mcp.js";
+export { governClaudeAgentOptions } from "./integrations/claude-agent-sdk.js";
+export type { ClaudeAgentOptionsLike } from "./integrations/claude-agent-sdk.js";
 //# sourceMappingURL=index.d.ts.map

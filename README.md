@@ -314,6 +314,40 @@ while (true) {
 }
 ```
 
+### Claude Agent SDK
+
+`governClaudeAgentOptions` adds Thoth to `query()` options as hooks, so every
+tool call the agent makes (built-in tools, MCP tools and your own) is checked
+before it runs. It uses a PreToolUse hook rather than `canUseTool`, which the
+SDK skips for tools already allowed.
+
+```typescript
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { governClaudeAgentOptions } from "@atensec/thoth/claude-agent-sdk";
+
+for await (const message of query({
+  prompt: "Summarise today's open orders",
+  options: governClaudeAgentOptions(
+    { allowedTools: ["mcp__orders__list_orders"] },
+    {
+      agentId: "trader",
+      tenantId: process.env.THOTH_TENANT_ID!,
+      approvedScope: [],
+      userId: request.user.email,
+    },
+  ),
+})) {
+  // ...
+}
+```
+
+When Thoth allows a call, the SDK's own permission rules still apply; Thoth
+never grants what they refuse. A refused call is denied with Thoth's reason,
+which the model sees, and the tool never runs; so is a call Thoth can't check.
+A held call waits for a reviewer (the hook allows 16 minutes). If Thoth would
+change a call's arguments, the call is denied. Your own hooks are kept and run
+first.
+
 ### MCP clients
 
 `governMcpClient` governs every tool call an MCP client

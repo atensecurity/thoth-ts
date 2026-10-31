@@ -6,6 +6,14 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ### Added
 
+- Claude Agent SDK: `governClaudeAgentOptions(options, config)` (also
+  `@atensec/thoth/claude-agent-sdk`) adds Thoth as PreToolUse, PostToolUse
+  and PostToolUseFailure hooks, so every tool call is checked before it runs,
+  including tools in `allowedTools`. An allowed call is left to the SDK's own
+  permission rules; a refused call, or one Thoth can't check, is denied with
+  the reason; a held call waits up to 16 minutes. Tested with
+  `@anthropic-ai/claude-agent-sdk` 0.3.316's hook types.
+
 - MCP clients: `governMcpClient(client, config)` (also `@atensec/thoth/mcp`)
   governs every `callTool` an `@modelcontextprotocol/sdk` client makes, from
   your code or a framework's MCP adapter. Tools are governed by name as they
