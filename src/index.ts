@@ -25,3 +25,5 @@ export { wrapAnthropicTools } from "./integrations/anthropic.js";
 export type { AnthropicToolFn } from "./integrations/anthropic.js";
 export { wrapOpenAITools } from "./integrations/openai.js";
 export type { OpenAIToolFn } from "./integrations/openai.js";
+export { governAiSdkTools } from "./integrations/ai-sdk.js";
+export type { AiSdkTool } from "./integrations/ai-sdk.js";

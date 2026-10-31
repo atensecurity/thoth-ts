@@ -314,6 +314,42 @@ while (true) {
 }
 ```
 
+### Vercel AI SDK
+
+`governAiSdkTools` governs a tool set for `generateText`, `streamText` or an
+`Agent` (AI SDK 7). Each tool with an `execute` is checked before it runs, with
+the tool's input as its arguments; the call options (`toolCallId`,
+`abortSignal`, messages) reach your `execute` unchanged. Tools without
+`execute` are left as they are.
+
+```typescript
+import { generateText, tool } from "ai";
+import { z } from "zod";
+import { governAiSdkTools } from "@atensec/thoth/ai-sdk";
+
+const tools = governAiSdkTools(
+  {
+    listOrders: tool({
+      description: "List open orders for an account",
+      inputSchema: z.object({ account: z.string() }),
+      execute: async ({ account }) => orders.list(account),
+    }),
+  },
+  {
+    agentId: "trader",
+    tenantId: process.env.THOTH_TENANT_ID!,
+    approvedScope: ["listOrders"],
+    userId: request.user.email,
+  },
+);
+
+await generateText({ model, tools, prompt: "What's open on A-1?" });
+```
+
+A refused call throws `ThothPolicyViolation` from `execute` and the original
+never runs; the AI SDK records it as the tool call's error. Call
+`governAiSdkTools` once per session, for example per request.
+
 ---
 
 ## Configuration Reference

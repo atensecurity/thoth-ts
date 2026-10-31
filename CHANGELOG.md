@@ -2,6 +2,18 @@
 
 All notable changes to `@atensec/thoth` are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Vercel AI SDK: `governAiSdkTools(tools, config)` (also
+  `@atensec/thoth/ai-sdk`) governs a tool set for `generateText`,
+  `streamText` or an `Agent`. Each tool with an `execute` is checked before it
+  runs, with only the tool's input sent as its arguments; the call options
+  reach `execute` unchanged, and tools without `execute` are left alone. Input
+  schemas (Zod or JSON Schema) are reported to the tool inventory as JSON
+  Schema. Tested with AI SDK 7.0.159.
+
 ## 0.1.22 - 2026-10-18
 
 ### Added

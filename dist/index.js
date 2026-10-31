@@ -8,4 +8,5 @@ export { emitBehavioralEvent } from "./emitter.js";
 //   import { wrapOpenAITools }    from "@atensec/thoth/openai"
 export { wrapAnthropicTools } from "./integrations/anthropic.js";
 export { wrapOpenAITools } from "./integrations/openai.js";
+export { governAiSdkTools } from "./integrations/ai-sdk.js";
 //# sourceMappingURL=index.js.map
