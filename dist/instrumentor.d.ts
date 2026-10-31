@@ -5,6 +5,14 @@ import { ThothConfig } from "./models.js";
  * including a repeat of it, must be checked.
  */
 export declare function claimCheckedCall(toolName: string, args: unknown): boolean;
+/**
+ * True, once, when this MCP call is the one a governed framework tool already
+ * checked. Frameworks often expose an MCP tool under a prefixed name, so the
+ * checked call may be named `<prefix><separator><toolName>`. The arguments
+ * must be identical, and it is claimed once (owner decision, 31 October 2026:
+ * a prefixed-name match, not a name-blind one).
+ */
+export declare function claimCheckedMcpCall(toolName: string, args: unknown): boolean;
 export declare function instrument<T extends object>(agent: T, config: ThothConfig): T;
 /** A tool as the inventory reads it. */
 export interface InventoryTool {
@@ -26,5 +34,7 @@ export interface GovernedSession {
  * tool-call history, including tools first seen after it opens (an MCP
  * server's, for example). instrument() is a session wrapping an agent's tools.
  */
-export declare function openSession(config: ThothConfig): GovernedSession;
+export declare function openSession(config: ThothConfig, options?: {
+    sessionId?: string;
+}): GovernedSession;
 //# sourceMappingURL=instrumentor.d.ts.map

@@ -13,6 +13,17 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ### Added
 
+- `init()` and `actingFor()`: one call at startup governs every LangChain.js
+  and LangGraph.js tool and every MCP client call (`@modelcontextprotocol/sdk`)
+  in the process, including tools and clients created before it, with no
+  tools wrapped. `actingFor(userId, fn, { sessionId })` runs a request for the
+  user it serves, in its own session or a named one shared by that user's
+  blocks. An MCP call that a governed LangChain tool already checked (the same
+  arguments, under the MCP tool's name or a prefixed form of it) isn't checked
+  twice. `init()` reads `THOTH_AGENT_ID` and `THOTH_TENANT_ID` with the
+  existing variables; `shutdown()` removes it. Frameworks whose tools are plain
+  objects keep their `govern*` functions. Tested with `@langchain/core` 1.3.2
+  and `@modelcontextprotocol/sdk` 1.32.2.
 - Cloudflare Agents: documented governing a chat agent's tools with
   `governAiSdkTools`, since `AIChatAgent` (`@cloudflare/ai-chat`) runs tools
   through the AI SDK and `this.mcp.getAITools()` returns MCP tools as an AI SDK

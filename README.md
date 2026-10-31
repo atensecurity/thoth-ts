@@ -82,6 +82,35 @@ const result = await governed.run(
 );
 ```
 
+**Or, for LangChain.js, LangGraph.js and MCP clients: one call, no tool changes.**
+
+```typescript
+import { init, actingFor } from "@atensec/thoth";
+
+await init(); // reads THOTH_AGENT_ID, THOTH_TENANT_ID, THOTH_API_URL, THOTH_API_KEY
+
+// Every LangChain tool (including those LangGraph's ToolNode runs) and every
+// MCP client call in the process is now checked before it runs, including
+// tools and clients created before init(). Run each request for the user it serves:
+app.post("/chat", (req, res) =>
+  actingFor(req.user.email, () =>
+    graph.invoke({ messages: req.body.messages }),
+  ),
+);
+```
+
+`actingFor(userId, fn, { sessionId })` gives the block its own Thoth session;
+blocks naming the same `sessionId` for the same user share its tool-call
+history. A refused call throws `ThothPolicyViolation` and the tool never runs
+(an MCP call is never sent). An MCP call that a governed LangChain tool already
+checked, with the same arguments under the MCP tool's name or a prefixed form
+of it, isn't checked twice. `init()` patches the copy of each framework that
+Node resolves from `@atensec/thoth`; an app bundled with its own copy (some
+Next.js and edge builds) isn't governed by it, so use the `govern*` functions
+below there. Frameworks whose tools are plain objects (the AI SDK, OpenAI
+Agents, Mastra, Genkit, the Claude Agent SDK) are governed with their `govern*`
+functions.
+
 ---
 
 ## Legacy ThothClient
@@ -667,6 +696,8 @@ up automatically.
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `THOTH_API_KEY`   | API key from the Aten dashboard. Used as default if `apiKey` config option is not set.                                              | `thoth_live_abc123...`                   |
 | `THOTH_API_URL`   | Tenant API base URL used for both enforcement and event ingestion when `apiUrl` is not provided.                                    | `https://enforce.<tenant>.<apex-domain>` |
+| `THOTH_AGENT_ID`  | The agent `init()` governs tools for, when `agentId` is not passed.                                                                 | `trader`                                 |
+| `THOTH_TENANT_ID` | Your tenant, read by `init()` when `tenantId` is not passed.                                                                        | `acme`                                   |
 | `THOTH_FAIL_OPEN` | Optional fail-open switch (`true/false`). When true, enforcer `network/429/5xx` failures return `ALLOW`. Auth failures still block. | `true`                                   |
 | `THOTH_LOG_LEVEL` | Optional SDK decision-log level override (`DEBUG`, `INFO`, `WARN`, `ERROR`). Falls back to `LOG_LEVEL` when unset.                  | `DEBUG`                                  |
 

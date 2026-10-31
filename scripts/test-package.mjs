@@ -31,7 +31,7 @@ try {
   ], consumer);
   writeFileSync(join(consumer, 'probe.mjs'), `
 import assert from 'node:assert/strict';
-import { instrument, ThothClient, ThothPolicyViolation } from '@atensec/thoth';
+import { instrument, ThothClient, ThothPolicyViolation, init, actingFor, shutdown } from '@atensec/thoth';
 import { wrapAnthropicTools } from '@atensec/thoth/anthropic';
 import { wrapOpenAITools } from '@atensec/thoth/openai';
 import { governAiSdkTools } from '@atensec/thoth/ai-sdk';
@@ -43,9 +43,12 @@ import { governOpenAIAgentTools } from '@atensec/thoth/openai-agents';
 import { governStrandsTools } from '@atensec/thoth/strands';
 import { governAdkTools } from '@atensec/thoth/google-adk';
 import { thothGenkitMiddleware } from '@atensec/thoth/genkit';
-for (const exported of [instrument, ThothClient, ThothPolicyViolation, wrapAnthropicTools, wrapOpenAITools, governAiSdkTools, governMcpClient, governClaudeAgentOptions, governLangChainTools, governMastraTools, governOpenAIAgentTools, governStrandsTools, governAdkTools, thothGenkitMiddleware]) {
+for (const exported of [instrument, ThothClient, ThothPolicyViolation, init, actingFor, shutdown, wrapAnthropicTools, wrapOpenAITools, governAiSdkTools, governMcpClient, governClaudeAgentOptions, governLangChainTools, governMastraTools, governOpenAIAgentTools, governStrandsTools, governAdkTools, thothGenkitMiddleware]) {
   assert.equal(typeof exported, 'function');
 }
+// No framework is installed in this consumer, so init() governs none and loads cleanly.
+assert.deepEqual(await init({ agentId: 'probe', tenantId: 'probe', apiUrl: 'https://enforce.example.test' }), []);
+shutdown();
 console.log('Native Node public exports passed on ' + process.version);
 `);
   execFileSync(process.execPath, ['probe.mjs'], {

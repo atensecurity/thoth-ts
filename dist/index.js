@@ -1,4 +1,5 @@
 export { instrument } from "./instrumentor.js";
+export { init, actingFor, shutdown } from "./auto.js";
 export { ThothClient } from "./client.js";
 export { ThothPolicyViolation } from "./models.js";
 export { EnforcementMode, DecisionType, SourceType, EventType, } from "./models.js";

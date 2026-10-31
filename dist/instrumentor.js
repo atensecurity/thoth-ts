@@ -45,6 +45,27 @@ export function claimCheckedCall(toolName, args) {
     call.claimed = true;
     return true;
 }
+// Separators frameworks put between a server or toolset prefix and an MCP
+// tool's own name (github_create_issue, github-create_issue, github.create_issue).
+const MCP_PREFIX_SEPARATORS = ["_", "-", ".", ":", "/"];
+/**
+ * True, once, when this MCP call is the one a governed framework tool already
+ * checked. Frameworks often expose an MCP tool under a prefixed name, so the
+ * checked call may be named `<prefix><separator><toolName>`. The arguments
+ * must be identical, and it is claimed once (owner decision, 31 October 2026:
+ * a prefixed-name match, not a name-blind one).
+ */
+export function claimCheckedMcpCall(toolName, args) {
+    const call = governedCall.getStore();
+    if (!call || call.claimed || call.args !== canonical(args))
+        return false;
+    if (call.name !== toolName &&
+        !MCP_PREFIX_SEPARATORS.some((separator) => call.name.endsWith(separator + toolName))) {
+        return false;
+    }
+    call.claimed = true;
+    return true;
+}
 const DEFAULT_ENVIRONMENT = ((typeof process !== "undefined" &&
     (process.env?.THOTH_ENVIRONMENT || process.env?.THOTH_ENV)) ||
     "prod")
@@ -499,11 +520,11 @@ export function instrument(agent, config) {
  * tool-call history, including tools first seen after it opens (an MCP
  * server's, for example). instrument() is a session wrapping an agent's tools.
  */
-export function openSession(config) {
+export function openSession(config, options = {}) {
     const apiUrl = resolveApiUrl(config);
     const cfg = { ...DEFAULTS, ...config };
     cfg.apiUrl = apiUrl;
-    const sessionId = crypto.randomUUID();
+    const sessionId = options.sessionId || crypto.randomUUID();
     const enforcementTraceId = cfg.enforcementTraceId ?? sessionId;
     const toolCalls = [];
     const report = (tools) => {
