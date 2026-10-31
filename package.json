@@ -88,7 +88,7 @@
     "ai": "7.0.159",
     "genkit": "1.43.0",
     "typescript": "5.8.3",
-    "vite": "7.3.3",
+    "vite": "7.3.7",
     "vitest": "5.0.3"
   },
   "publishConfig": {
