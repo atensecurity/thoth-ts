@@ -46,43 +46,32 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash } from "node:crypto";
 
 import {
   claimCheckedCall,
   claimCheckedMcpCall,
   openSession,
+  runActingFor,
   type GovernedSession,
 } from "./instrumentor.js";
+
+export { namedSessionId } from "./instrumentor.js";
 import { ThothPolicyViolation, type ThothConfig } from "./models.js";
 import { jsonSchemaOf } from "./integrations/govern.js";
 
 /** What init() reads from the environment, and anything to set in code instead. */
 export type InitOptions = Partial<ThothConfig>;
 
-// Sessions named by the caller (actingFor(..., { sessionId })), kept so a
-// later request resuming one continues its tool-call history. Oldest dropped first.
-const MAX_NAMED_SESSIONS = 10_000;
-
-interface Actor {
-  userId?: string;
-  session: GovernedSession;
-}
-
 interface Runtime {
   config: ThothConfig;
-  fallback: Actor;
-  named: Map<string, GovernedSession>;
+  /** Opened with no userId, so calls in an actingFor block run as that user. */
+  session: GovernedSession;
   reported: Set<string>;
-  governed: WeakMap<
-    GovernedSession,
-    Map<string, (...args: unknown[]) => unknown>
-  >;
+  governed: Map<string, (...args: unknown[]) => unknown>;
 }
 
 let runtime: Runtime | undefined;
 let undoHooks: (() => void)[] = [];
-const actors = new AsyncLocalStorage<Actor>();
 // The call being run: the original, with exactly the arguments Thoth checked.
 const running = new AsyncLocalStorage<(checked: unknown) => unknown>();
 
@@ -122,10 +111,9 @@ export async function init(options: InitOptions = {}): Promise<string[]> {
   };
   runtime = {
     config,
-    fallback: { userId: config.userId, session: openSession(config) },
-    named: new Map(),
+    session: openSession(config),
     reported: new Set(),
-    governed: new WeakMap(),
+    governed: new Map(),
   };
   const installed: string[] = [];
   for (const [name, install] of Object.entries(HOOKS)) {
@@ -149,76 +137,25 @@ export function shutdown(): void {
  * Runs `fn` with governed tools acting for `userId`, in one session. Without a
  * `sessionId` the block has its own session; with one, blocks naming the same
  * session for the same user share its tool-call history.
+ *
+ * It covers every governed tool given no `userId` of its own: those init()
+ * governs, and those governed with instrument() or a `govern*` function. It
+ * doesn't need init().
  */
 export function actingFor<T>(
   userId: string,
   fn: () => T,
   options: { sessionId?: string } = {},
 ): T {
-  if (!runtime) throw new Error("actingFor() needs init() first");
   if (typeof userId !== "string" || !userId.trim()) {
     throw new Error("actingFor() needs the user the agent is acting for");
   }
-  return actors.run(
-    { userId, session: sessionFor(runtime, userId, options.sessionId) },
-    fn,
-  );
+  return runActingFor(userId, options.sessionId, fn);
 }
 
 /**
- * The session ID Thoth sees for a caller-named session. The caller's ID is
- * only unique within one user's sessions, so two users naming the same ID
- * must never share a session in Thoth: the ID sent is derived from the
- * tenant, agent, user and the caller's ID. It is stable across processes, so
- * a later request resuming the session continues it, and the Python SDK
- * derives the same ID.
- */
-export function namedSessionId(
-  config: Pick<ThothConfig, "tenantId" | "agentId">,
-  userId: string,
-  sessionId: string,
-): string {
-  const hex = createHash("sha256")
-    .update(
-      [
-        "thoth-named-session-v1",
-        config.tenantId,
-        config.agentId,
-        userId,
-        sessionId,
-      ].join("\u0000"),
-    )
-    .digest("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
-
-function sessionFor(
-  rt: Runtime,
-  userId: string,
-  sessionId?: string,
-): GovernedSession {
-  const config = { ...rt.config, userId };
-  if (!sessionId) return openSession(config);
-  // Keyed by user too, so one user's history never feeds another's decisions.
-  const key = `${userId}\u0000${sessionId}`;
-  let session = rt.named.get(key);
-  if (session) {
-    rt.named.delete(key);
-  } else {
-    session = openSession(config, {
-      sessionId: namedSessionId(rt.config, userId, sessionId),
-    });
-  }
-  rt.named.set(key, session);
-  while (rt.named.size > MAX_NAMED_SESSIONS) {
-    rt.named.delete(rt.named.keys().next().value as string);
-  }
-  return session;
-}
-
-/**
- * Checks one call with Thoth in the current actor's session, then runs it
- * with exactly the arguments Thoth checked. A refusal throws.
+ * Checks one call with Thoth (as the actingFor user, when there is one), then
+ * runs it with exactly the arguments Thoth checked. A refusal throws.
  */
 function checkThenRun(
   rt: Runtime,
@@ -227,10 +164,9 @@ function checkThenRun(
   tool: { description?: unknown; schema?: unknown },
   run: (checked: unknown) => unknown,
 ): Promise<unknown> {
-  const actor = actors.getStore() ?? rt.fallback;
   if (!rt.reported.has(name)) {
     rt.reported.add(name);
-    actor.session.report([
+    rt.session.report([
       {
         name,
         description:
@@ -239,14 +175,9 @@ function checkThenRun(
       },
     ]);
   }
-  let governed = rt.governed.get(actor.session);
-  if (!governed) {
-    governed = new Map();
-    rt.governed.set(actor.session, governed);
-  }
-  let wrapped = governed.get(name);
+  let wrapped = rt.governed.get(name);
   if (!wrapped) {
-    wrapped = actor.session.wrap(name, (checked: unknown) => {
+    wrapped = rt.session.wrap(name, (checked: unknown) => {
       const current = running.getStore();
       if (!current)
         throw new ThothPolicyViolation(
@@ -255,7 +186,7 @@ function checkThenRun(
         );
       return current(checked);
     });
-    governed.set(name, wrapped);
+    rt.governed.set(name, wrapped);
   }
   const call = wrapped;
   return running.run(run, () => Promise.resolve(call(args)));

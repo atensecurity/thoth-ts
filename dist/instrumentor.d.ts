@@ -21,6 +21,17 @@ export interface InventoryTool {
     inputSchema?: unknown;
     input_schema?: unknown;
 }
+/** Runs `fn` with governed calls acting for `userId`; see actingFor(). */
+export declare function runActingFor<T>(userId: string, sessionId: string | undefined, fn: () => T): T;
+/**
+ * The session ID Thoth sees for a caller-named session. The caller's ID is
+ * only unique within one user's sessions, so two users naming the same ID
+ * must never share a session in Thoth: the ID sent is derived from the
+ * tenant, agent, user and the caller's ID. It is stable across processes, so
+ * a later request resuming the session continues it, and the Python SDK
+ * derives the same ID.
+ */
+export declare function namedSessionId(config: Pick<ThothConfig, "tenantId" | "agentId">, userId: string, sessionId: string): string;
 /** One Thoth session that governs tools by name (openSession). */
 export interface GovernedSession {
     readonly sessionId: string;

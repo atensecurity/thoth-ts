@@ -17,6 +17,14 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ### Added
 
+- `actingFor(userId, fn, { sessionId })` now covers every governed tool given
+  no `userId`, including those governed with `instrument()` or a `govern*`
+  function (the AI SDK, OpenAI Agents, Mastra, Genkit, the Claude Agent SDK
+  and the rest), and no longer needs `init()`. Govern the tools once at
+  startup and each call in a block is checked as that user. Every governed
+  tool of the same agent in a block shares one session, and a named session
+  continues across requests even when the tools are governed anew per
+  request. A `userId` set in a tool's config still wins.
 - `init()` now also governs Strands Agents and Google ADK. For Strands, every
   agent-loop tool call and every direct `agent.tool.<name>()` call is checked
   with exactly the input that runs; a streaming tool runs inside the check

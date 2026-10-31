@@ -123,6 +123,24 @@ there. Frameworks whose tools are plain objects (the AI SDK, OpenAI Agents,
 Mastra, Genkit, the Claude Agent SDK) are governed with their `govern*`
 functions.
 
+`actingFor` works with those too, and without `init()`: govern the tools once
+at startup with no `userId`, and each call inside an `actingFor` block is
+checked as that user, in the block's session. Every governed tool of the same
+agent in a block shares one session, however it was governed. A `userId` set
+in a tool's config always wins.
+
+```typescript
+const tools = governAiSdkTools(myTools, {
+  agentId,
+  tenantId,
+  approvedScope: [],
+});
+
+app.post("/chat", (req, res) =>
+  actingFor(req.user.email, () => generateText({ model, tools, prompt })),
+);
+```
+
 ---
 
 ## Legacy ThothClient

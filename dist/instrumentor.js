@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, EventType, } from "./models.js";
 import { awaitStepUpDecision, checkEnforce, requestHumanExplanation, } from "./enforcer-client.js";
 import { emitBehavioralEvent } from "./emitter.js";
@@ -515,6 +516,69 @@ export function instrument(agent, config) {
     }
     return agent;
 }
+const actingForStore = new AsyncLocalStorage();
+// Sessions named by the caller (actingFor(..., { sessionId })), kept so a
+// later request resuming one continues its tool-call history. Oldest dropped first.
+const MAX_NAMED_SESSIONS = 10000;
+const namedSessions = new Map();
+/** Runs `fn` with governed calls acting for `userId`; see actingFor(). */
+export function runActingFor(userId, sessionId, fn) {
+    return actingForStore.run({ userId, sessionId, sessions: new Map() }, fn);
+}
+/**
+ * The session ID Thoth sees for a caller-named session. The caller's ID is
+ * only unique within one user's sessions, so two users naming the same ID
+ * must never share a session in Thoth: the ID sent is derived from the
+ * tenant, agent, user and the caller's ID. It is stable across processes, so
+ * a later request resuming the session continues it, and the Python SDK
+ * derives the same ID.
+ */
+export function namedSessionId(config, userId, sessionId) {
+    const hex = createHash("sha256")
+        .update([
+        "thoth-named-session-v1",
+        config.tenantId,
+        config.agentId,
+        userId,
+        sessionId,
+    ].join("\u0000"))
+        .digest("hex");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+/**
+ * The session a call inside an actingFor block runs in, for a session opened
+ * with no userId: one per agent and block, or the named session it continues.
+ * Every governed tool of the same agent in the block shares it, however its
+ * tools were governed (init(), instrument() or a govern* function).
+ */
+function actingForSession(config, actor) {
+    const agent = [config.tenantId, config.agentId, resolveApiUrl(config)].join("\u0000");
+    const userConfig = { ...config, userId: actor.userId };
+    if (!actor.sessionId) {
+        let session = actor.sessions.get(agent);
+        if (!session) {
+            session = openSession(userConfig);
+            actor.sessions.set(agent, session);
+        }
+        return session;
+    }
+    // Keyed by user too, so one user's history never feeds another's decisions.
+    const key = [agent, actor.userId, actor.sessionId].join("\u0000");
+    let session = namedSessions.get(key);
+    if (session) {
+        namedSessions.delete(key);
+    }
+    else {
+        session = openSession(userConfig, {
+            sessionId: namedSessionId(config, actor.userId, actor.sessionId),
+        });
+    }
+    namedSessions.set(key, session);
+    while (namedSessions.size > MAX_NAMED_SESSIONS) {
+        namedSessions.delete(namedSessions.keys().next().value);
+    }
+    return session;
+}
 /**
  * Opens one Thoth session. Every function it wraps shares the session's ID and
  * tool-call history, including tools first seen after it opens (an MCP
@@ -864,6 +928,31 @@ export function openSession(config, options = {}) {
         });
         return wrapped;
     };
-    return { sessionId, wrap, report };
+    if (config.userId)
+        return { sessionId, wrap, report };
+    // Opened with no userId: a call inside an actingFor block runs in that
+    // user's session for this agent; any other call runs in this one.
+    const governedWrap = (toolName, originalRun) => {
+        const own = wrap(toolName, originalRun);
+        const perSession = new WeakMap();
+        const delegating = (...args) => {
+            const actor = actingForStore.getStore();
+            if (!actor)
+                return own(...args);
+            const session = actingForSession(config, actor);
+            let governed = perSession.get(session);
+            if (!governed) {
+                governed = session.wrap(toolName, originalRun);
+                perSession.set(session, governed);
+            }
+            return governed(...args);
+        };
+        Object.defineProperty(delegating, "name", {
+            value: originalRun.name,
+            configurable: true,
+        });
+        return delegating;
+    };
+    return { sessionId, wrap: governedWrap, report };
 }
 //# sourceMappingURL=instrumentor.js.map

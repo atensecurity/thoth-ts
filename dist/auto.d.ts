@@ -44,6 +44,7 @@
  * Every call is sent to Thoth before the tool runs, and the server decides:
  * whether the agent observes or enforces is set there, per agent, never here.
  */
+export { namedSessionId } from "./instrumentor.js";
 import { type ThothConfig } from "./models.js";
 /** What init() reads from the environment, and anything to set in code instead. */
 export type InitOptions = Partial<ThothConfig>;
@@ -55,17 +56,12 @@ export declare function shutdown(): void;
  * Runs `fn` with governed tools acting for `userId`, in one session. Without a
  * `sessionId` the block has its own session; with one, blocks naming the same
  * session for the same user share its tool-call history.
+ *
+ * It covers every governed tool given no `userId` of its own: those init()
+ * governs, and those governed with instrument() or a `govern*` function. It
+ * doesn't need init().
  */
 export declare function actingFor<T>(userId: string, fn: () => T, options?: {
     sessionId?: string;
 }): T;
-/**
- * The session ID Thoth sees for a caller-named session. The caller's ID is
- * only unique within one user's sessions, so two users naming the same ID
- * must never share a session in Thoth: the ID sent is derived from the
- * tenant, agent, user and the caller's ID. It is stable across processes, so
- * a later request resuming the session continues it, and the Python SDK
- * derives the same ID.
- */
-export declare function namedSessionId(config: Pick<ThothConfig, "tenantId" | "agentId">, userId: string, sessionId: string): string;
 //# sourceMappingURL=auto.d.ts.map
