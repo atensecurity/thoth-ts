@@ -2,12 +2,48 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, EventType, } from "./models.js";
 import { awaitStepUpDecision, checkEnforce, requestHumanExplanation, } from "./enforcer-client.js";
 import { emitBehavioralEvent } from "./emitter.js";
-// The tool a governed wrapper has checked and is running now. A lower layer
-// (an MCP client under a framework's tool) skips checking the same tool again.
-const governedTool = new AsyncLocalStorage();
-/** True while a governed wrapper runs this tool, which Thoth already checked. */
-export function alreadyGoverned(toolName) {
-    return governedTool.getStore() === toolName;
+// A lower layer (an MCP client under a framework's tool) may skip checking the
+// call again, but only once, and only that exact call: the same tool name with
+// the same arguments Thoth checked. Any other call inside the wrapper, and a
+// second one, is checked as usual.
+const governedCall = new AsyncLocalStorage();
+/** A stable JSON rendering, keys sorted, for comparing arguments. */
+function canonical(value) {
+    const seen = new WeakSet();
+    const order = (item) => {
+        if (item === null || typeof item !== "object")
+            return item;
+        if (seen.has(item))
+            return "[circular]";
+        seen.add(item);
+        if (Array.isArray(item))
+            return item.map(order);
+        return Object.fromEntries(Object.keys(item)
+            .sort()
+            .map((key) => [key, order(item[key])]));
+    };
+    try {
+        return JSON.stringify(order(value)) ?? "undefined";
+    }
+    catch {
+        return `[unserializable:${Math.random()}]`;
+    }
+}
+/**
+ * True, once, when this is the exact call a governed wrapper already checked
+ * and is running: the same tool and the same arguments. Every other call,
+ * including a repeat of it, must be checked.
+ */
+export function claimCheckedCall(toolName, args) {
+    const call = governedCall.getStore();
+    if (!call ||
+        call.claimed ||
+        call.name !== toolName ||
+        call.args !== canonical(args)) {
+        return false;
+    }
+    call.claimed = true;
+    return true;
 }
 const DEFAULT_ENVIRONMENT = ((typeof process !== "undefined" &&
     (process.env?.THOTH_ENVIRONMENT || process.env?.THOTH_ENV)) ||
@@ -776,7 +812,12 @@ export function openSession(config) {
                     }
                     throw error;
                 }
-                const result = await governedTool.run(toolName, () => originalRun(...outcome.effectiveArgs));
+                const checked = {
+                    name: toolName,
+                    args: canonical(toolArgsFromCall(outcome.effectiveArgs) ?? {}),
+                    claimed: false,
+                };
+                const result = await governedCall.run(checked, () => originalRun(...outcome.effectiveArgs));
                 toolCalls.push(toolName);
                 await emit({
                     eventType: EventType.TOOL_CALL_POST,

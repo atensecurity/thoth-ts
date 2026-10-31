@@ -1,6 +1,10 @@
 import { ThothConfig } from "./models.js";
-/** True while a governed wrapper runs this tool, which Thoth already checked. */
-export declare function alreadyGoverned(toolName: string): boolean;
+/**
+ * True, once, when this is the exact call a governed wrapper already checked
+ * and is running: the same tool and the same arguments. Every other call,
+ * including a repeat of it, must be checked.
+ */
+export declare function claimCheckedCall(toolName: string, args: unknown): boolean;
 export declare function instrument<T extends object>(agent: T, config: ThothConfig): T;
 /** A tool as the inventory reads it. */
 export interface InventoryTool {

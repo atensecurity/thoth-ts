@@ -23,8 +23,9 @@
  * ```
  *
  * A refused call rejects with ThothPolicyViolation and never reaches the MCP
- * server. A call already checked by a governed wrapper (a framework tool that
- * calls this client) is not checked a second time.
+ * server. When a governed framework tool calls this client for the same tool
+ * with the same arguments Thoth just checked, that one call isn't checked a
+ * second time; any other call inside it is.
  */
 import type { ThothConfig } from "../models.js";
 /** The parts of an MCP client this integration uses. */

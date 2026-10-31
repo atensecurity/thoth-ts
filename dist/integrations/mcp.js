@@ -23,11 +23,12 @@
  * ```
  *
  * A refused call rejects with ThothPolicyViolation and never reaches the MCP
- * server. A call already checked by a governed wrapper (a framework tool that
- * calls this client) is not checked a second time.
+ * server. When a governed framework tool calls this client for the same tool
+ * with the same arguments Thoth just checked, that one call isn't checked a
+ * second time; any other call inside it is.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { alreadyGoverned, openSession } from "../instrumentor.js";
+import { claimCheckedCall, openSession } from "../instrumentor.js";
 import { jsonSchemaOf } from "./govern.js";
 /**
  * Governs `client.callTool` (and reports listed tools to the tool inventory).
@@ -43,7 +44,11 @@ export function governMcpClient(client, config) {
     const governed = new Map();
     const callTool = (params, ...rest) => {
         const name = params?.name;
-        if (typeof name !== "string" || !name || alreadyGoverned(name)) {
+        // A call without a tool name names no tool to run; the server refuses it.
+        // A governed wrapper's own call goes through unchecked once, exactly as checked.
+        if (typeof name !== "string" ||
+            !name ||
+            claimCheckedCall(name, params.arguments ?? {})) {
             return original(params, ...rest);
         }
         let run = governed.get(name);

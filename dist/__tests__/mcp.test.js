@@ -97,5 +97,44 @@ describe("governMcpClient", () => {
         expect(ran).toEqual(["list_orders:A-3"]);
         expect(thoth.checks).toHaveLength(1);
     });
+    it("checks every other call inside a governed wrapper", async () => {
+        const thoth = fakeThoth();
+        thoth.decisions.wire_funds = "BLOCK";
+        const ran = [];
+        const client = await connected(ran);
+        // A wrapper checked for one account calls the tool again with another
+        // account, repeats the checked call, and calls a refused tool.
+        const frameworkTool = openSession(config).wrap("list_orders", async (args) => {
+            await client.callTool({
+                name: "list_orders",
+                arguments: args,
+            });
+            await client.callTool({
+                name: "list_orders",
+                arguments: { account: "OTHER" },
+            });
+            await client.callTool({
+                name: "list_orders",
+                arguments: args,
+            });
+            return client.callTool({
+                name: "wire_funds",
+                arguments: { amount: 1 },
+            });
+        });
+        await expect(frameworkTool({ account: "A-4" })).rejects.toBeInstanceOf(ThothPolicyViolation);
+        expect(ran).toEqual([
+            "list_orders:A-4",
+            "list_orders:OTHER",
+            "list_orders:A-4",
+        ]);
+        // The wrapper's check, then the other account, the repeat and the wire.
+        expect(thoth.checks.map((check) => check.tool_args)).toEqual([
+            { account: "A-4" },
+            { account: "OTHER" },
+            { account: "A-4" },
+            { amount: 1 },
+        ]);
+    });
 });
 //# sourceMappingURL=mcp.test.js.map
