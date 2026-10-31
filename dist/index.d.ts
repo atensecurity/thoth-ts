@@ -17,4 +17,6 @@ export { governClaudeAgentOptions } from "./integrations/claude-agent-sdk.js";
 export type { ClaudeAgentOptionsLike } from "./integrations/claude-agent-sdk.js";
 export { governLangChainTools } from "./integrations/langchain.js";
 export type { LangChainToolLike } from "./integrations/langchain.js";
+export { governMastraTools } from "./integrations/mastra.js";
+export type { MastraToolLike } from "./integrations/mastra.js";
 //# sourceMappingURL=index.d.ts.map

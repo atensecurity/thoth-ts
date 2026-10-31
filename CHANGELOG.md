@@ -23,6 +23,12 @@ All notable changes to `@atensec/thoth` are documented in this file.
   `invoke` (and `call`) is checked with the tool's arguments, a `ToolCall` by
   its `args`; a refused call never runs. The tools passed in are unchanged.
   Tested with `@langchain/core` 1.3.2 and `@langchain/langgraph` 1.6.0.
+- Mastra: `governMastraTools(tools, config)` (also `@atensec/thoth/mastra`)
+  returns governed copies of a Mastra agent's tools, keyed the same. Each
+  `execute` is checked with the tool's input, Mastra's execution context passes
+  through unchanged, and a refused call never runs. Copies keep each tool's
+  fields and class; the tools passed in are unchanged. Tested with a Mastra
+  `Agent` from `@mastra/core` 1.81.0.
 
 - Claude Agent SDK: `governClaudeAgentOptions(options, config)` (also
   `@atensec/thoth/claude-agent-sdk`) adds Thoth as PreToolUse, PostToolUse

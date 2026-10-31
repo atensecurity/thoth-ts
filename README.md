@@ -294,6 +294,38 @@ while (true) {
 }
 ```
 
+### Mastra
+
+`governMastraTools` governs the tools you give a Mastra `Agent`. Each call is
+checked with the tool's input before its `execute` runs; Mastra's execution
+context reaches `execute` unchanged.
+
+```typescript
+import { Agent } from "@mastra/core/agent";
+import { governMastraTools } from "@atensec/thoth/mastra";
+
+const agent = new Agent({
+  id: "trader",
+  name: "trader",
+  instructions: "Trade carefully.",
+  model,
+  tools: governMastraTools(
+    { listOrders, wireFunds },
+    {
+      agentId: "trader",
+      tenantId: process.env.THOTH_TENANT_ID!,
+      approvedScope: [],
+      userId: request.user.email,
+    },
+  ),
+});
+```
+
+Thoth sees each tool by its key (the name the model calls it by). A refused
+call throws `ThothPolicyViolation` from `execute` and the tool never runs.
+The governed copies keep each tool's fields and class; the tools passed in are
+unchanged, so build the agent's governed tools per run or request.
+
 ### Claude Agent SDK
 
 `governClaudeAgentOptions` adds Thoth to `query()` options as hooks, so every
