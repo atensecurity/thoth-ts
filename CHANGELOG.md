@@ -31,10 +31,13 @@ All notable changes to `@atensec/thoth` are documented in this file.
   `Agent` from `@mastra/core` 1.81.0.
 - OpenAI Agents SDK: `governOpenAIAgentTools(tools, config)` (also
   `@atensec/thoth/openai-agents`) governs an agent's function tools. Each call
-  is checked with the model's arguments before the tool runs; unchanged
-  arguments reach the tool exactly as sent. A refused call never runs, and the
-  model gets "Thoth refused this call: <reason>" as the tool's output. Hosted
-  tools are left as they are. Tested with `@openai/agents` 0.21.0's `run()`.
+  is checked with the model's arguments before the tool runs, and the tool runs
+  with exactly the arguments Thoth checked; arguments that aren't a JSON object
+  are refused. A refused call never runs, and the model gets "Thoth refused
+  this call: <reason>" as the tool's output. Hosted tools are left as they
+  are; local tools Thoth can't check (shell, apply_patch, computer) make it
+  throw unless named in `options.ungoverned`. Tested with `@openai/agents`
+  0.21.0's `run()`.
 
 - Claude Agent SDK: `governClaudeAgentOptions(options, config)` (also
   `@atensec/thoth/claude-agent-sdk`) adds Thoth as PreToolUse, PostToolUse

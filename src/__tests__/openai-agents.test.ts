@@ -128,6 +128,40 @@ describe("governOpenAIAgentTools", () => {
     );
   });
 
+  it("refuses a local tool it can't check unless named, and leaves hosted tools", () => {
+    fakeThoth();
+    const shell = { type: "shell", name: "shell" };
+    const webSearch = { type: "hosted_tool", name: "web_search" };
+    expect(() => governOpenAIAgentTools([...tools([]), shell], config)).toThrow(
+      /Thoth can't check shell tool "shell"/,
+    );
+    expect(() =>
+      governOpenAIAgentTools([{ type: "something_new" }], config),
+    ).toThrow(/Thoth can't check something_new tool/);
+    const governed = governOpenAIAgentTools(
+      [...tools([]), shell, webSearch],
+      config,
+      { ungoverned: ["shell"] },
+    );
+    expect(governed[2]).toBe(shell);
+    expect(governed[3]).toBe(webSearch);
+  });
+
+  it("doesn't run a call whose arguments aren't a JSON object", async () => {
+    const thoth = fakeThoth();
+    const ran: string[] = [];
+    const [listOrders] = governOpenAIAgentTools(tools(ran), config);
+    const invoke = listOrders.invoke as (
+      runContext: unknown,
+      input: string,
+    ) => Promise<unknown>;
+    for (const input of ['"A-1"', "[1]", "not json", "null"]) {
+      expect(await invoke({}, input)).toMatch(/^Thoth refused this call/);
+    }
+    expect(ran).toEqual([]);
+    expect(thoth.checks).toHaveLength(0);
+  });
+
   it("leaves the original tools alone and keeps each tool's fields", () => {
     fakeThoth();
     const originals = tools([]);

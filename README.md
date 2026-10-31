@@ -319,9 +319,14 @@ await run(agent, "What's open on A-1?");
 
 A refused call never runs: the model gets `Thoth refused this call: <reason>`
 as the tool's output, as the SDK reports any tool error, and Thoth records the
-refusal. Hosted tools (web search, file search, code interpreter) run at
-OpenAI and are left as they are. The tools passed in are unchanged, so govern
-them per run or request.
+refusal. The tool runs with exactly the arguments Thoth checked, and a call
+whose arguments aren't a JSON object is refused. Hosted tools (web search,
+file search, code interpreter) run at OpenAI and are left as they are. Local
+tools that run in your process outside a function tool (shell, apply_patch,
+computer) can't be checked, so governing a list that contains one throws,
+unless you accept it running unchecked by name:
+`governOpenAIAgentTools(tools, config, { ungoverned: ["shell"] })`. The tools
+passed in are unchanged, so govern them per run or request.
 
 ### Mastra
 
