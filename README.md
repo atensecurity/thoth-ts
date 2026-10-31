@@ -294,6 +294,32 @@ while (true) {
 }
 ```
 
+### Strands Agents
+
+`governStrandsTools` governs a Strands agent's tools (`tool()`, MCP tools,
+vended tools). Each call is checked with its final input when the tool runs,
+and the tool runs with exactly the input Thoth checked.
+
+```typescript
+import { Agent } from "@strands-agents/sdk";
+import { governStrandsTools } from "@atensec/thoth/strands";
+
+const agent = new Agent({
+  tools: governStrandsTools([listOrders, wireFunds], {
+    agentId: "trader",
+    tenantId: process.env.THOTH_TENANT_ID!,
+    approvedScope: [],
+    userId: request.user.email,
+  }),
+});
+await agent.invoke("What's open on A-1?");
+```
+
+Thoth checks at the tool rather than in a `BeforeToolCallEvent` hook, so a hook
+registered later can't change the input after the check. A refused call never
+runs. The governed copies keep each tool's fields and class; the tools passed
+in are unchanged.
+
 ### OpenAI Agents SDK
 
 `governOpenAIAgentTools` governs an agent's function tools (`tool()` from

@@ -27,6 +27,10 @@
       "types": "./dist/integrations/mcp.d.ts",
       "import": "./dist/integrations/mcp.js"
     },
+    "./strands": {
+      "types": "./dist/integrations/strands.d.ts",
+      "import": "./dist/integrations/strands.js"
+    },
     "./openai-agents": {
       "types": "./dist/integrations/openai-agents.d.ts",
       "import": "./dist/integrations/openai-agents.js"
@@ -70,6 +74,7 @@
     "@mastra/core": "1.81.0",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@openai/agents": "0.21.0",
+    "@strands-agents/sdk": "1.23.0",
     "@types/node": "22.15.3",
     "ai": "7.0.159",
     "typescript": "5.8.3",

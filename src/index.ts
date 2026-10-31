@@ -37,3 +37,5 @@ export { governMastraTools } from "./integrations/mastra.js";
 export type { MastraToolLike } from "./integrations/mastra.js";
 export { governOpenAIAgentTools } from "./integrations/openai-agents.js";
 export type { OpenAIAgentToolLike } from "./integrations/openai-agents.js";
+export { governStrandsTools } from "./integrations/strands.js";
+export type { StrandsToolLike } from "./integrations/strands.js";

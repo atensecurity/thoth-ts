@@ -38,6 +38,12 @@ All notable changes to `@atensec/thoth` are documented in this file.
   are; local tools Thoth can't check (shell, apply_patch, computer) make it
   throw unless named in `options.ungoverned`. Tested with `@openai/agents`
   0.21.0's `run()`.
+- Strands Agents: `governStrandsTools(tools, config)` (also
+  `@atensec/thoth/strands`) returns governed copies of a Strands agent's
+  tools. Each call is checked with its final input when the tool runs, and the
+  tool runs with exactly the input Thoth checked, so a later hook can't change
+  it after the check; a refused call never runs. Tested with a Strands `Agent`
+  from `@strands-agents/sdk` 1.23.0.
 
 - Claude Agent SDK: `governClaudeAgentOptions(options, config)` (also
   `@atensec/thoth/claude-agent-sdk`) adds Thoth as PreToolUse, PostToolUse
