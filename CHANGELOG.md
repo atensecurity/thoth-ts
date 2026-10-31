@@ -51,6 +51,13 @@ All notable changes to `@atensec/thoth` are documented in this file.
   so a `beforeToolCallback` can't change them after the check; a refused call
   never runs. Tested with an `LlmAgent` and `InMemoryRunner` from
   `@google/adk` 2.4.0.
+- Genkit: `thothGenkitMiddleware(generateMiddleware, config)` (also
+  `@atensec/thoth/genkit`) builds Genkit generate middleware whose `tool` hook
+  checks every tool call before it runs and runs the tool with exactly the
+  input Thoth checked. Pass it last in `use` (`use: [thoth()]`), so no other
+  middleware can change the input after the check. A refused call never runs,
+  and the model gets "Thoth refused this call: <reason>" as the tool's output.
+  Tested with `genkit` 1.43.0's `generate`.
 
 - Claude Agent SDK: `governClaudeAgentOptions(options, config)` (also
   `@atensec/thoth/claude-agent-sdk`) adds Thoth as PreToolUse, PostToolUse

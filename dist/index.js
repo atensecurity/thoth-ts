@@ -16,4 +16,5 @@ export { governMastraTools } from "./integrations/mastra.js";
 export { governOpenAIAgentTools } from "./integrations/openai-agents.js";
 export { governStrandsTools } from "./integrations/strands.js";
 export { governAdkTools } from "./integrations/google-adk.js";
+export { thothGenkitMiddleware } from "./integrations/genkit.js";
 //# sourceMappingURL=index.js.map

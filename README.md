@@ -349,6 +349,34 @@ so another callback can't change the arguments after the check. A refused call
 never runs. The governed copies keep each tool's fields and class; the tools
 passed in are unchanged.
 
+### Genkit
+
+`thothGenkitMiddleware` builds Genkit generate middleware that checks every
+tool call before it runs. Pass Genkit's own `generateMiddleware` in (Genkit
+isn't a dependency of this SDK), and put the middleware **last** in `use`:
+
+```typescript
+import { generateMiddleware } from "genkit";
+import { thothGenkitMiddleware } from "@atensec/thoth/genkit";
+
+const thoth = thothGenkitMiddleware(generateMiddleware, {
+  agentId: "trader",
+  tenantId: process.env.THOTH_TENANT_ID!,
+  approvedScope: [],
+  userId: request.user.email,
+});
+await ai.generate({
+  prompt: "What's open on A-1?",
+  tools: [listOrders, wireFunds],
+  use: [thoth()], // last: nothing after it can change a tool's input
+});
+```
+
+Last in `use`, Thoth's middleware is the innermost, so the tool runs with
+exactly the input Thoth checked. A refused call never runs: the model gets
+`Thoth refused this call: <reason>` as the tool's output, and Thoth records
+the refusal. Build the middleware per session, for example per request.
+
 ### OpenAI Agents SDK
 
 `governOpenAIAgentTools` governs an agent's function tools (`tool()` from

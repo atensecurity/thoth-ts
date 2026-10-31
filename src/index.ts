@@ -41,3 +41,8 @@ export { governStrandsTools } from "./integrations/strands.js";
 export type { StrandsToolLike } from "./integrations/strands.js";
 export { governAdkTools } from "./integrations/google-adk.js";
 export type { AdkToolLike } from "./integrations/google-adk.js";
+export { thothGenkitMiddleware } from "./integrations/genkit.js";
+export type {
+  GenerateMiddlewareFactory,
+  GenkitToolRequestPart,
+} from "./integrations/genkit.js";
