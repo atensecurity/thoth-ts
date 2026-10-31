@@ -41,7 +41,8 @@ import { governLangChainTools } from '@atensec/thoth/langchain';
 import { governMastraTools } from '@atensec/thoth/mastra';
 import { governOpenAIAgentTools } from '@atensec/thoth/openai-agents';
 import { governStrandsTools } from '@atensec/thoth/strands';
-for (const exported of [instrument, ThothClient, ThothPolicyViolation, wrapAnthropicTools, wrapOpenAITools, governAiSdkTools, governMcpClient, governClaudeAgentOptions, governLangChainTools, governMastraTools, governOpenAIAgentTools, governStrandsTools]) {
+import { governAdkTools } from '@atensec/thoth/google-adk';
+for (const exported of [instrument, ThothClient, ThothPolicyViolation, wrapAnthropicTools, wrapOpenAITools, governAiSdkTools, governMcpClient, governClaudeAgentOptions, governLangChainTools, governMastraTools, governOpenAIAgentTools, governStrandsTools, governAdkTools]) {
   assert.equal(typeof exported, 'function');
 }
 console.log('Native Node public exports passed on ' + process.version);

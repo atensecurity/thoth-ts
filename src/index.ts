@@ -39,3 +39,5 @@ export { governOpenAIAgentTools } from "./integrations/openai-agents.js";
 export type { OpenAIAgentToolLike } from "./integrations/openai-agents.js";
 export { governStrandsTools } from "./integrations/strands.js";
 export type { StrandsToolLike } from "./integrations/strands.js";
+export { governAdkTools } from "./integrations/google-adk.js";
+export type { AdkToolLike } from "./integrations/google-adk.js";

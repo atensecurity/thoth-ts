@@ -44,6 +44,13 @@ All notable changes to `@atensec/thoth` are documented in this file.
   tool runs with exactly the input Thoth checked, so a later hook can't change
   it after the check; a refused call never runs. Tested with a Strands `Agent`
   from `@strands-agents/sdk` 1.23.0.
+- Google ADK: `governAdkTools(tools, config)` (also
+  `@atensec/thoth/google-adk`) returns governed copies of an ADK agent's
+  tools. Each call is checked with its final arguments when the tool's
+  `runAsync` runs, and the tool runs with exactly the arguments Thoth checked,
+  so a `beforeToolCallback` can't change them after the check; a refused call
+  never runs. Tested with an `LlmAgent` and `InMemoryRunner` from
+  `@google/adk` 2.4.0.
 
 - Claude Agent SDK: `governClaudeAgentOptions(options, config)` (also
   `@atensec/thoth/claude-agent-sdk`) adds Thoth as PreToolUse, PostToolUse

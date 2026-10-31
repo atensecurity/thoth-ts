@@ -320,6 +320,35 @@ registered later can't change the input after the check. A refused call never
 runs. The governed copies keep each tool's fields and class; the tools passed
 in are unchanged.
 
+### Google ADK
+
+`governAdkTools` governs a Google Agent Development Kit agent's tools
+(`FunctionTool`, MCP tools, agent tools). Each call is checked with its final
+arguments when the tool runs, and the tool runs with exactly the arguments
+Thoth checked.
+
+```typescript
+import { LlmAgent } from "@google/adk";
+import { governAdkTools } from "@atensec/thoth/google-adk";
+
+const agent = new LlmAgent({
+  name: "trader",
+  model: "gemini-2.5-flash",
+  instruction: "Trade carefully.",
+  tools: governAdkTools([listOrders, wireFunds], {
+    agentId: "trader",
+    tenantId: process.env.THOTH_TENANT_ID!,
+    approvedScope: [],
+    userId: request.user.email,
+  }),
+});
+```
+
+Thoth checks at the tool (`runAsync`) rather than in a `beforeToolCallback`,
+so another callback can't change the arguments after the check. A refused call
+never runs. The governed copies keep each tool's fields and class; the tools
+passed in are unchanged.
+
 ### OpenAI Agents SDK
 
 `governOpenAIAgentTools` governs an agent's function tools (`tool()` from

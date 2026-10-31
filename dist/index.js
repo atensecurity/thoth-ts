@@ -15,4 +15,5 @@ export { governLangChainTools } from "./integrations/langchain.js";
 export { governMastraTools } from "./integrations/mastra.js";
 export { governOpenAIAgentTools } from "./integrations/openai-agents.js";
 export { governStrandsTools } from "./integrations/strands.js";
+export { governAdkTools } from "./integrations/google-adk.js";
 //# sourceMappingURL=index.js.map
