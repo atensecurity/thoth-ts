@@ -72,6 +72,39 @@ describe("actingFor with govern* functions", () => {
         expect(second.session_id).toBe(first.session_id);
         expect(second.session_tool_calls).toEqual(["list_orders", "wire_funds"]);
     });
+    it("checks each tool with its own config, sharing only the session", async () => {
+        const thoth = fakeThoth();
+        // One agent, two tool sets governed with different configs. (Both
+        // enforce: in observe mode a call isn't sent to the enforcer.)
+        const [orders] = governLangChainTools([listOrders], {
+            ...base,
+            approvedScope: ["list_orders"],
+            purpose: "reporting",
+        });
+        const wires = governAiSdkTools(aiTools, {
+            ...base,
+            approvedScope: [],
+            purpose: "payments",
+        });
+        await actingFor("alice@acme.test", async () => {
+            await orders.invoke({ account: "A" });
+            await wires.wire_funds.execute({ amount: 5 }, {
+                toolCallId: "call-1",
+                messages: [],
+            });
+        });
+        const [first, second] = thoth.checks;
+        // Each check carries its own tool set's config, never the other's.
+        expect(first.tool_name).toBe("list_orders");
+        expect(first.approved_scope).toEqual(["list_orders"]);
+        expect(first.purpose).toBe("reporting");
+        expect(second.tool_name).toBe("wire_funds");
+        expect(second.approved_scope).toEqual([]);
+        expect(second.purpose).toBe("payments");
+        // The session and its history are still shared.
+        expect(second.session_id).toBe(first.session_id);
+        expect(second.session_tool_calls).toEqual(["list_orders", "wire_funds"]);
+    });
     it("continues a named session across requests, per user", async () => {
         const thoth = fakeThoth();
         // A fresh governed copy per request, as an app might make.

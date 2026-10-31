@@ -682,13 +682,23 @@ export interface InventoryTool {
 
 // --- actingFor ---------------------------------------------------------------
 
+/**
+ * What the governed tools of one agent share in an actingFor block: the
+ * session's ID and its tool-call history. Nothing that decides a check is
+ * shared: each tool is checked with its own config.
+ */
+interface SharedSession {
+  sessionId: string;
+  toolCalls: string[];
+}
+
 /** The user a block of governed calls acts for (actingFor). */
 interface ActingFor {
   userId: string;
   /** The caller's session name, when the block continues a named session. */
   sessionId?: string;
   /** The block's own sessions, one per agent, when it names none. */
-  sessions: Map<string, GovernedSession>;
+  sessions: Map<string, SharedSession>;
 }
 
 const actingForStore = new AsyncLocalStorage<ActingFor>();
@@ -696,7 +706,7 @@ const actingForStore = new AsyncLocalStorage<ActingFor>();
 // Sessions named by the caller (actingFor(..., { sessionId })), kept so a
 // later request resuming one continues its tool-call history. Oldest dropped first.
 const MAX_NAMED_SESSIONS = 10_000;
-const namedSessions = new Map<string, GovernedSession>();
+const namedSessions = new Map<string, SharedSession>();
 
 /** Runs `fn` with governed calls acting for `userId`; see actingFor(). */
 export function runActingFor<T>(
@@ -735,42 +745,40 @@ export function namedSessionId(
 }
 
 /**
- * The session a call inside an actingFor block runs in, for a session opened
- * with no userId: one per agent and block, or the named session it continues.
- * Every governed tool of the same agent in the block shares it, however its
- * tools were governed (init(), instrument() or a govern* function).
+ * The shared session a call inside an actingFor block runs in, for a session
+ * opened with no userId: one per agent and block, or the named session it
+ * continues. Every governed tool of the same agent in the block shares its ID
+ * and history, however its tools were governed (init(), instrument() or a
+ * govern* function); each is still checked with its own config.
  */
-function actingForSession(
-  config: ThothConfig,
-  actor: ActingFor,
-): GovernedSession {
+function actingForShared(config: ThothConfig, actor: ActingFor): SharedSession {
   const agent = [config.tenantId, config.agentId, resolveApiUrl(config)].join(
     "\u0000",
   );
-  const userConfig = { ...config, userId: actor.userId };
   if (!actor.sessionId) {
-    let session = actor.sessions.get(agent);
-    if (!session) {
-      session = openSession(userConfig);
-      actor.sessions.set(agent, session);
+    let shared = actor.sessions.get(agent);
+    if (!shared) {
+      shared = { sessionId: crypto.randomUUID(), toolCalls: [] };
+      actor.sessions.set(agent, shared);
     }
-    return session;
+    return shared;
   }
   // Keyed by user too, so one user's history never feeds another's decisions.
   const key = [agent, actor.userId, actor.sessionId].join("\u0000");
-  let session = namedSessions.get(key);
-  if (session) {
+  let shared = namedSessions.get(key);
+  if (shared) {
     namedSessions.delete(key);
   } else {
-    session = openSession(userConfig, {
+    shared = {
       sessionId: namedSessionId(config, actor.userId, actor.sessionId),
-    });
+      toolCalls: [],
+    };
   }
-  namedSessions.set(key, session);
+  namedSessions.set(key, shared);
   while (namedSessions.size > MAX_NAMED_SESSIONS) {
     namedSessions.delete(namedSessions.keys().next().value as string);
   }
-  return session;
+  return shared;
 }
 
 /** One Thoth session that governs tools by name (openSession). */
@@ -792,7 +800,7 @@ export interface GovernedSession {
  */
 export function openSession(
   config: ThothConfig,
-  options: { sessionId?: string } = {},
+  options: { sessionId?: string; toolCalls?: string[] } = {},
 ): GovernedSession {
   const apiUrl = resolveApiUrl(config);
   const cfg = { ...DEFAULTS, ...config } as Required<ThothConfig> & {
@@ -801,7 +809,8 @@ export function openSession(
   cfg.apiUrl = apiUrl;
   const sessionId = options.sessionId || crypto.randomUUID();
   const enforcementTraceId = cfg.enforcementTraceId ?? sessionId;
-  const toolCalls: string[] = [];
+  // Shared with other sessions only for actingFor (actingForShared).
+  const toolCalls: string[] = options.toolCalls ?? [];
 
   const report = (tools: InventoryTool[]): void => {
     if (
@@ -1289,8 +1298,10 @@ export function openSession(
 
   if (config.userId) return { sessionId, wrap, report };
 
-  // Opened with no userId: a call inside an actingFor block runs in that
-  // user's session for this agent; any other call runs in this one.
+  // Opened with no userId: a call inside an actingFor block is checked as
+  // that user, with this session's own config, in the block's shared session
+  // for this agent; any other call runs in this one.
+  const asUser = new WeakMap<SharedSession, GovernedSession>();
   const governedWrap = (
     toolName: string,
     originalRun: (...args: unknown[]) => unknown,
@@ -1303,7 +1314,15 @@ export function openSession(
     const delegating = (...args: unknown[]): unknown => {
       const actor = actingForStore.getStore();
       if (!actor) return own(...args);
-      const session = actingForSession(config, actor);
+      const shared = actingForShared(config, actor);
+      let session = asUser.get(shared);
+      if (!session) {
+        session = openSession(
+          { ...config, userId: actor.userId },
+          { sessionId: shared.sessionId, toolCalls: shared.toolCalls },
+        );
+        asUser.set(shared, session);
+      }
       let governed = perSession.get(session);
       if (!governed) {
         governed = session.wrap(toolName, originalRun);

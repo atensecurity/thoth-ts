@@ -47,5 +47,6 @@ export interface GovernedSession {
  */
 export declare function openSession(config: ThothConfig, options?: {
     sessionId?: string;
+    toolCalls?: string[];
 }): GovernedSession;
 //# sourceMappingURL=instrumentor.d.ts.map

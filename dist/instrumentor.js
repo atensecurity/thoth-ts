@@ -546,38 +546,39 @@ export function namedSessionId(config, userId, sessionId) {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 /**
- * The session a call inside an actingFor block runs in, for a session opened
- * with no userId: one per agent and block, or the named session it continues.
- * Every governed tool of the same agent in the block shares it, however its
- * tools were governed (init(), instrument() or a govern* function).
+ * The shared session a call inside an actingFor block runs in, for a session
+ * opened with no userId: one per agent and block, or the named session it
+ * continues. Every governed tool of the same agent in the block shares its ID
+ * and history, however its tools were governed (init(), instrument() or a
+ * govern* function); each is still checked with its own config.
  */
-function actingForSession(config, actor) {
+function actingForShared(config, actor) {
     const agent = [config.tenantId, config.agentId, resolveApiUrl(config)].join("\u0000");
-    const userConfig = { ...config, userId: actor.userId };
     if (!actor.sessionId) {
-        let session = actor.sessions.get(agent);
-        if (!session) {
-            session = openSession(userConfig);
-            actor.sessions.set(agent, session);
+        let shared = actor.sessions.get(agent);
+        if (!shared) {
+            shared = { sessionId: crypto.randomUUID(), toolCalls: [] };
+            actor.sessions.set(agent, shared);
         }
-        return session;
+        return shared;
     }
     // Keyed by user too, so one user's history never feeds another's decisions.
     const key = [agent, actor.userId, actor.sessionId].join("\u0000");
-    let session = namedSessions.get(key);
-    if (session) {
+    let shared = namedSessions.get(key);
+    if (shared) {
         namedSessions.delete(key);
     }
     else {
-        session = openSession(userConfig, {
+        shared = {
             sessionId: namedSessionId(config, actor.userId, actor.sessionId),
-        });
+            toolCalls: [],
+        };
     }
-    namedSessions.set(key, session);
+    namedSessions.set(key, shared);
     while (namedSessions.size > MAX_NAMED_SESSIONS) {
         namedSessions.delete(namedSessions.keys().next().value);
     }
-    return session;
+    return shared;
 }
 /**
  * Opens one Thoth session. Every function it wraps shares the session's ID and
@@ -590,7 +591,8 @@ export function openSession(config, options = {}) {
     cfg.apiUrl = apiUrl;
     const sessionId = options.sessionId || crypto.randomUUID();
     const enforcementTraceId = cfg.enforcementTraceId ?? sessionId;
-    const toolCalls = [];
+    // Shared with other sessions only for actingFor (actingForShared).
+    const toolCalls = options.toolCalls ?? [];
     const report = (tools) => {
         if (typeof process !== "undefined" &&
             process.env?.THOTH_TOOL_INVENTORY?.toLowerCase() === "off") {
@@ -930,8 +932,10 @@ export function openSession(config, options = {}) {
     };
     if (config.userId)
         return { sessionId, wrap, report };
-    // Opened with no userId: a call inside an actingFor block runs in that
-    // user's session for this agent; any other call runs in this one.
+    // Opened with no userId: a call inside an actingFor block is checked as
+    // that user, with this session's own config, in the block's shared session
+    // for this agent; any other call runs in this one.
+    const asUser = new WeakMap();
     const governedWrap = (toolName, originalRun) => {
         const own = wrap(toolName, originalRun);
         const perSession = new WeakMap();
@@ -939,7 +943,12 @@ export function openSession(config, options = {}) {
             const actor = actingForStore.getStore();
             if (!actor)
                 return own(...args);
-            const session = actingForSession(config, actor);
+            const shared = actingForShared(config, actor);
+            let session = asUser.get(shared);
+            if (!session) {
+                session = openSession({ ...config, userId: actor.userId }, { sessionId: shared.sessionId, toolCalls: shared.toolCalls });
+                asUser.set(shared, session);
+            }
             let governed = perSession.get(session);
             if (!governed) {
                 governed = session.wrap(toolName, originalRun);

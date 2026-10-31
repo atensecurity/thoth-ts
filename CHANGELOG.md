@@ -22,9 +22,11 @@ All notable changes to `@atensec/thoth` are documented in this file.
   function (the AI SDK, OpenAI Agents, Mastra, Genkit, the Claude Agent SDK
   and the rest), and no longer needs `init()`. Govern the tools once at
   startup and each call in a block is checked as that user. Every governed
-  tool of the same agent in a block shares one session, and a named session
-  continues across requests even when the tools are governed anew per
-  request. A `userId` set in a tool's config still wins.
+  tool of the same agent in a block shares one session ID and tool-call
+  history, while each is still checked with its own config (approved scope,
+  enforcement, API key, purpose and the rest), and a named session continues
+  across requests even when the tools are governed anew per request. A
+  `userId` set in a tool's config still wins.
 - `init()` now also governs Strands Agents and Google ADK. For Strands, every
   agent-loop tool call and every direct `agent.tool.<name>()` call is checked
   with exactly the input that runs; a streaming tool runs inside the check
