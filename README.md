@@ -394,6 +394,45 @@ A refused call throws `ThothPolicyViolation` from `execute` and the original
 never runs; the AI SDK records it as the tool call's error. Call
 `governAiSdkTools` once per session, for example per request.
 
+### Cloudflare Agents
+
+Cloudflare's chat agents (`AIChatAgent` from `@cloudflare/ai-chat`, built on
+the `agents` SDK) run tools through the Vercel AI SDK, and
+`this.mcp.getAITools()` returns connected MCP servers' tools as an AI SDK tool
+set. Govern the whole set you pass to `streamText`:
+
+```typescript
+import { AIChatAgent } from "@cloudflare/ai-chat";
+import { convertToModelMessages, streamText } from "ai";
+import { governAiSdkTools } from "@atensec/thoth/ai-sdk";
+
+export class Trader extends AIChatAgent<Env> {
+  async onChatMessage() {
+    const tools = governAiSdkTools(
+      { ...myTools, ...this.mcp.getAITools() },
+      {
+        agentId: "trader",
+        tenantId: this.env.THOTH_TENANT_ID,
+        apiUrl: this.env.THOTH_API_URL,
+        apiKey: this.env.THOTH_API_KEY,
+        approvedScope: [],
+        userId: this.name,
+      },
+    );
+    const result = streamText({
+      model,
+      tools,
+      messages: await convertToModelMessages(this.messages),
+    });
+    return result.toUIMessageStreamResponse();
+  }
+}
+```
+
+Your tools, MCP tools and sub-agent tools (`agentTool`) in that set are each
+checked before they run. Workers have no `process.env`, so pass the connection
+in the config.
+
 ---
 
 ## Configuration Reference

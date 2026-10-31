@@ -13,6 +13,10 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ### Added
 
+- Cloudflare Agents: documented governing a chat agent's tools with
+  `governAiSdkTools`, since `AIChatAgent` (`@cloudflare/ai-chat`) runs tools
+  through the AI SDK and `this.mcp.getAITools()` returns MCP tools as an AI SDK
+  tool set. Tested with a tool set in that shape.
 - LangChain.js and LangGraph.js: `governLangChainTools(tools, config)` (also
   `@atensec/thoth/langchain`) returns governed copies of LangChain tools for
   LangGraph's `ToolNode` and `createReactAgent` and for LangChain agents. Each

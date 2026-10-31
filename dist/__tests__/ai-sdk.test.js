@@ -103,6 +103,34 @@ describe("governAiSdkTools", () => {
         const error = result.steps[0].content.find((part) => part.type === "tool-error");
         expect(error && "error" in error ? error.error : undefined).toBeInstanceOf(ThothPolicyViolation);
     });
+    it("governs a plain tool set like Cloudflare's getAITools() returns", async () => {
+        const thoth = fakeThoth();
+        thoth.decisions.mcp_wire = "BLOCK";
+        const ran = [];
+        // The shape of agents' MCPAITool: a plain object, not built with tool().
+        const mcpTools = {
+            mcp_wire: {
+                description: "Send a wire (from an MCP server)",
+                inputSchema: z.object({ amount: z.number() }),
+                execute: async (args) => {
+                    ran.push(`mcp_wire:${args.amount}`);
+                    return "sent";
+                },
+            },
+        };
+        const result = await generateText({
+            model: modelCalling("mcp_wire", { amount: 5 }),
+            tools: governAiSdkTools(mcpTools, config),
+            stopWhen: stepCountIs(3),
+            prompt: "Send it",
+        });
+        expect(ran).toEqual([]);
+        expect(result.steps[0].content.some((part) => part.type === "tool-error")).toBe(true);
+        expect(thoth.checks[0]).toMatchObject({
+            tool_name: "mcp_wire",
+            tool_args: { amount: 5 },
+        });
+    });
     it("leaves tools without execute alone and reports schemas as JSON Schema", async () => {
         const thoth = fakeThoth();
         const clientSide = {
