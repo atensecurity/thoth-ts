@@ -1,6 +1,6 @@
 {
   "name": "@atensec/thoth",
-  "version": "0.2.0",
+  "version": "0.6.1",
   "type": "module",
   "author": "Aten Engineering <engineering@atensecurity.com>",
   "description": "AI agent governance SDK by Aten Security",
@@ -88,6 +88,7 @@
     "ai": "7.0.159",
     "genkit": "1.43.0",
     "typescript": "5.8.3",
+    "vite": "7.3.3",
     "vitest": "5.0.3"
   },
   "publishConfig": {
