@@ -1,6 +1,14 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, EventType, } from "./models.js";
 import { awaitStepUpDecision, checkEnforce, requestHumanExplanation, } from "./enforcer-client.js";
 import { emitBehavioralEvent } from "./emitter.js";
+// The tool a governed wrapper has checked and is running now. A lower layer
+// (an MCP client under a framework's tool) skips checking the same tool again.
+const governedTool = new AsyncLocalStorage();
+/** True while a governed wrapper runs this tool, which Thoth already checked. */
+export function alreadyGoverned(toolName) {
+    return governedTool.getStore() === toolName;
+}
 const DEFAULT_ENVIRONMENT = ((typeof process !== "undefined" &&
     (process.env?.THOTH_ENVIRONMENT || process.env?.THOTH_ENV)) ||
     "prod")
@@ -435,17 +443,38 @@ function wrapAsAsyncGenerator(toolName, fn, toolCalls, enforce, emit, baseMetada
     };
 }
 export function instrument(agent, config) {
+    // Resolved first, as before: a missing API URL throws even without tools.
+    resolveApiUrl(config);
+    const tools = agent.tools;
+    if (!Array.isArray(tools))
+        return agent;
+    const session = openSession(config);
+    session.report(tools);
+    for (const tool of tools) {
+        const originalRun = tool.run?.bind(tool);
+        if (!originalRun)
+            continue;
+        tool.run = session.wrap(tool.name ?? String(tool), originalRun);
+    }
+    return agent;
+}
+/**
+ * Opens one Thoth session. Every function it wraps shares the session's ID and
+ * tool-call history, including tools first seen after it opens (an MCP
+ * server's, for example). instrument() is a session wrapping an agent's tools.
+ */
+export function openSession(config) {
     const apiUrl = resolveApiUrl(config);
     const cfg = { ...DEFAULTS, ...config };
     cfg.apiUrl = apiUrl;
     const sessionId = crypto.randomUUID();
     const enforcementTraceId = cfg.enforcementTraceId ?? sessionId;
     const toolCalls = [];
-    const tools = agent.tools;
-    if (!Array.isArray(tools))
-        return agent;
-    if (typeof process === "undefined" ||
-        process.env?.THOTH_TOOL_INVENTORY?.toLowerCase() !== "off") {
+    const report = (tools) => {
+        if (typeof process !== "undefined" &&
+            process.env?.THOTH_TOOL_INVENTORY?.toLowerCase() === "off") {
+            return;
+        }
         // Defer metadata conversion as well as transport; neither can break startup.
         void Promise.resolve()
             .then(() => {
@@ -507,7 +536,7 @@ export function instrument(agent, config) {
             }
         })
             .catch(() => undefined);
-    }
+    };
     const llmInvocationEvent = {
         eventId: tenantScopedEventId(cfg.tenantId),
         eventType: EventType.LLM_INVOCATION,
@@ -557,11 +586,7 @@ export function instrument(agent, config) {
         },
     };
     void emitBehavioralEvent(llmInvocationEvent, cfg.apiUrl, cfg.apiKey ?? "").catch(() => undefined);
-    for (const tool of tools) {
-        const toolName = tool.name ?? String(tool);
-        const originalRun = tool.run?.bind(tool);
-        if (!originalRun)
-            continue;
+    const wrap = (toolName, originalRun) => {
         const enforce = async (args, actionAttestationId) => {
             if (cfg.enforcement === EnforcementMode.OBSERVE) {
                 return { effectiveArgs: args };
@@ -751,7 +776,7 @@ export function instrument(agent, config) {
                     }
                     throw error;
                 }
-                const result = await originalRun(...outcome.effectiveArgs);
+                const result = await governedTool.run(toolName, () => originalRun(...outcome.effectiveArgs));
                 toolCalls.push(toolName);
                 await emit({
                     eventType: EventType.TOOL_CALL_POST,
@@ -775,8 +800,8 @@ export function instrument(agent, config) {
             value: originalRun.name,
             configurable: true,
         });
-        tool.run = wrapped;
-    }
-    return agent;
+        return wrapped;
+    };
+    return { sessionId, wrap, report };
 }
 //# sourceMappingURL=instrumentor.js.map

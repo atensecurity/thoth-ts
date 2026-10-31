@@ -9,4 +9,5 @@ export { emitBehavioralEvent } from "./emitter.js";
 export { wrapAnthropicTools } from "./integrations/anthropic.js";
 export { wrapOpenAITools } from "./integrations/openai.js";
 export { governAiSdkTools } from "./integrations/ai-sdk.js";
+export { governMcpClient } from "./integrations/mcp.js";
 //# sourceMappingURL=index.js.map

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import {
   ThothConfig,
   ThothPolicyViolation,
@@ -14,6 +16,15 @@ import {
   requestHumanExplanation,
 } from "./enforcer-client.js";
 import { emitBehavioralEvent } from "./emitter.js";
+
+// The tool a governed wrapper has checked and is running now. A lower layer
+// (an MCP client under a framework's tool) skips checking the same tool again.
+const governedTool = new AsyncLocalStorage<string>();
+
+/** True while a governed wrapper runs this tool, which Thoth already checked. */
+export function alreadyGoverned(toolName: string): boolean {
+  return governedTool.getStore() === toolName;
+}
 
 const DEFAULT_ENVIRONMENT = (
   (typeof process !== "undefined" &&
@@ -576,6 +587,46 @@ function wrapAsAsyncGenerator(
 }
 
 export function instrument<T extends object>(agent: T, config: ThothConfig): T {
+  // Resolved first, as before: a missing API URL throws even without tools.
+  resolveApiUrl(config);
+  const tools = (agent as Record<string, unknown>).tools;
+  if (!Array.isArray(tools)) return agent;
+  const session = openSession(config);
+  session.report(tools);
+  for (const tool of tools) {
+    const originalRun = tool.run?.bind(tool);
+    if (!originalRun) continue;
+    tool.run = session.wrap(tool.name ?? String(tool), originalRun);
+  }
+  return agent;
+}
+
+/** A tool as the inventory reads it. */
+export interface InventoryTool {
+  name?: unknown;
+  description?: unknown;
+  inputSchema?: unknown;
+  input_schema?: unknown;
+}
+
+/** One Thoth session that governs tools by name (openSession). */
+export interface GovernedSession {
+  readonly sessionId: string;
+  /** Governs one tool's function: checked by Thoth before it runs. */
+  wrap(
+    toolName: string,
+    run: (...args: unknown[]) => unknown,
+  ): (...args: unknown[]) => unknown;
+  /** Sends tools' names and schemas to the tool inventory, in the background. */
+  report(tools: InventoryTool[]): void;
+}
+
+/**
+ * Opens one Thoth session. Every function it wraps shares the session's ID and
+ * tool-call history, including tools first seen after it opens (an MCP
+ * server's, for example). instrument() is a session wrapping an agent's tools.
+ */
+export function openSession(config: ThothConfig): GovernedSession {
   const apiUrl = resolveApiUrl(config);
   const cfg = { ...DEFAULTS, ...config } as Required<ThothConfig> & {
     apiUrl: string;
@@ -585,12 +636,13 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
   const enforcementTraceId = cfg.enforcementTraceId ?? sessionId;
   const toolCalls: string[] = [];
 
-  const tools = (agent as Record<string, unknown>).tools;
-  if (!Array.isArray(tools)) return agent;
-  if (
-    typeof process === "undefined" ||
-    process.env?.THOTH_TOOL_INVENTORY?.toLowerCase() !== "off"
-  ) {
+  const report = (tools: InventoryTool[]): void => {
+    if (
+      typeof process !== "undefined" &&
+      process.env?.THOTH_TOOL_INVENTORY?.toLowerCase() === "off"
+    ) {
+      return;
+    }
     // Defer metadata conversion as well as transport; neither can break startup.
     void Promise.resolve()
       .then(() => {
@@ -668,7 +720,7 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
         }
       })
       .catch(() => undefined);
-  }
+  };
 
   const llmInvocationEvent: BehavioralEvent = {
     eventId: tenantScopedEventId(cfg.tenantId),
@@ -726,11 +778,10 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
     cfg.apiKey ?? "",
   ).catch(() => undefined);
 
-  for (const tool of tools) {
-    const toolName: string = tool.name ?? String(tool);
-    const originalRun = tool.run?.bind(tool);
-    if (!originalRun) continue;
-
+  const wrap = (
+    toolName: string,
+    originalRun: (...args: unknown[]) => unknown,
+  ): ((...args: unknown[]) => unknown) => {
     const enforce = async (
       args: unknown[],
       actionAttestationId: string,
@@ -1033,7 +1084,9 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
           }
           throw error;
         }
-        const result = await originalRun(...outcome.effectiveArgs);
+        const result = await governedTool.run(toolName, () =>
+          originalRun(...outcome.effectiveArgs),
+        );
         toolCalls.push(toolName);
         await emit({
           eventType: EventType.TOOL_CALL_POST,
@@ -1059,8 +1112,8 @@ export function instrument<T extends object>(agent: T, config: ThothConfig): T {
       configurable: true,
     });
 
-    tool.run = wrapped;
-  }
+    return wrapped;
+  };
 
-  return agent;
+  return { sessionId, wrap, report };
 }

@@ -314,6 +314,36 @@ while (true) {
 }
 ```
 
+### MCP clients
+
+`governMcpClient` governs every tool call an MCP client
+(`@modelcontextprotocol/sdk`) makes, whether your code calls `callTool` or a
+framework's MCP adapter does. Tools are governed by name the first time they
+are called, so nothing needs listing up front.
+
+```typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { governMcpClient } from "@atensec/thoth/mcp";
+
+const client = governMcpClient(
+  new Client({ name: "trader", version: "1.0.0" }),
+  {
+    agentId: "trader",
+    tenantId: process.env.THOTH_TENANT_ID!,
+    approvedScope: [],
+    userId: request.user.email,
+  },
+);
+await client.connect(transport);
+await client.callTool({ name: "list_orders", arguments: { account: "A-1" } });
+```
+
+A refused call rejects with `ThothPolicyViolation` and never reaches the MCP
+server. Tools from `listTools()` are reported to the tool inventory. If a
+governed framework tool calls this client, the call is checked once, not twice.
+For desktop MCP clients you don't run in your own code, use the
+[Thoth MCP proxy](https://docs.atensecurity.com/docs/mcp/proxy).
+
 ### Vercel AI SDK
 
 `governAiSdkTools` governs a tool set for `generateText`, `streamText` or an

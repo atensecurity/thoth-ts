@@ -6,6 +6,14 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ### Added
 
+- MCP clients: `governMcpClient(client, config)` (also `@atensec/thoth/mcp`)
+  governs every `callTool` an `@modelcontextprotocol/sdk` client makes, from
+  your code or a framework's MCP adapter. Tools are governed by name as they
+  are first called, in one session; a refused call never reaches the MCP
+  server; listed tools are reported to the tool inventory. A call a governed
+  wrapper already checked is not checked again. Tested with
+  `@modelcontextprotocol/sdk` 1.32.2.
+
 - Vercel AI SDK: `governAiSdkTools(tools, config)` (also
   `@atensec/thoth/ai-sdk`) governs a tool set for `generateText`,
   `streamText` or an `Agent`. Each tool with an `execute` is checked before it
