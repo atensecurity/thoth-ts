@@ -31,3 +31,5 @@ export { governMcpClient } from "./integrations/mcp.js";
 export type { McpClientLike } from "./integrations/mcp.js";
 export { governClaudeAgentOptions } from "./integrations/claude-agent-sdk.js";
 export type { ClaudeAgentOptionsLike } from "./integrations/claude-agent-sdk.js";
+export { governLangChainTools } from "./integrations/langchain.js";
+export type { LangChainToolLike } from "./integrations/langchain.js";

@@ -4,7 +4,21 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- README: the LangChain.js example passed an `AgentExecutor` to `instrument()`,
+  which wraps tools with a `.run` method. LangChain.js tools have none, so no
+  tool in that example was governed. The section now uses
+  `governLangChainTools`.
+
 ### Added
+
+- LangChain.js and LangGraph.js: `governLangChainTools(tools, config)` (also
+  `@atensec/thoth/langchain`) returns governed copies of LangChain tools for
+  LangGraph's `ToolNode` and `createReactAgent` and for LangChain agents. Each
+  `invoke` (and `call`) is checked with the tool's arguments, a `ToolCall` by
+  its `args`; a refused call never runs. The tools passed in are unchanged.
+  Tested with `@langchain/core` 1.3.2 and `@langchain/langgraph` 1.6.0.
 
 - Claude Agent SDK: `governClaudeAgentOptions(options, config)` (also
   `@atensec/thoth/claude-agent-sdk`) adds Thoth as PreToolUse, PostToolUse

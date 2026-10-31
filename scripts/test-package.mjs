@@ -37,7 +37,8 @@ import { wrapOpenAITools } from '@atensec/thoth/openai';
 import { governAiSdkTools } from '@atensec/thoth/ai-sdk';
 import { governMcpClient } from '@atensec/thoth/mcp';
 import { governClaudeAgentOptions } from '@atensec/thoth/claude-agent-sdk';
-for (const exported of [instrument, ThothClient, ThothPolicyViolation, wrapAnthropicTools, wrapOpenAITools, governAiSdkTools, governMcpClient, governClaudeAgentOptions]) {
+import { governLangChainTools } from '@atensec/thoth/langchain';
+for (const exported of [instrument, ThothClient, ThothPolicyViolation, wrapAnthropicTools, wrapOpenAITools, governAiSdkTools, governMcpClient, governClaudeAgentOptions, governLangChainTools]) {
   assert.equal(typeof exported, 'function');
 }
 console.log('Native Node public exports passed on ' + process.version);

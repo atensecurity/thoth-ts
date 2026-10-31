@@ -14,7 +14,7 @@ for human approval, or silently observing based on your configured enforcement m
 2. [Quick Start](#quick-start)
 3. [Legacy ThothClient](#legacy-thothclient)
 4. [How It Works](#how-it-works)
-5. [LangChain.js Example](#langchainjs-example)
+5. [LangChain.js and LangGraph.js](#langchainjs-and-langgraphjs)
 6. [Framework Integrations](#framework-integrations)
    - [Anthropic Claude](#anthropic-claude)
    - [OpenAI Function Calling](#openai-function-calling)
@@ -148,61 +148,41 @@ yield, `TOOL_CALL_POST` is emitted after generator exhaustion.
 
 ---
 
-## LangChain.js Example
+## LangChain.js and LangGraph.js
 
-Thoth works with any object that has a `.tools` array where each tool has a `.run` method.
-This includes LangChain.js `AgentExecutor` instances:
+`governLangChainTools` governs LangChain tools (`tool()`, `StructuredTool`,
+`DynamicTool`). LangGraph.js's `ToolNode` and `createReactAgent`, and
+LangChain agents, all run tools through `tool.invoke`, so pass them the
+governed tools. (`instrument()` wraps tools with a `.run` method, which
+LangChain.js tools don't have; use `governLangChainTools` for them.)
 
 ```typescript
-import { AgentExecutor, createOpenAIToolsAgent } from "langchain/agents";
-import { ChatOpenAI } from "@langchain/openai";
-import { DynamicTool } from "@langchain/core/tools";
-import { instrument } from "@atensec/thoth";
+import { tool } from "@langchain/core/tools";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { z } from "zod";
+import { governLangChainTools } from "@atensec/thoth/langchain";
 
-const webSearch = new DynamicTool({
-  name: "web_search",
-  description: "Search the web for current information.",
-  func: async (query: string) => {
-    // your search implementation
-    return `Results for: ${query}`;
-  },
+const listOrders = tool(async ({ account }) => orders.list(account), {
+  name: "list_orders",
+  description: "List open orders for an account",
+  schema: z.object({ account: z.string() }),
 });
 
-const readFile = new DynamicTool({
-  name: "read_file",
-  description: "Read a file from the local filesystem.",
-  func: async (path: string) => {
-    // your file read implementation
-    return `Contents of ${path}`;
-  },
+// Per request: the tools you define once stay unchanged.
+const tools = governLangChainTools([listOrders], {
+  agentId: "trader",
+  tenantId: process.env.THOTH_TENANT_ID!,
+  approvedScope: [],
+  userId: request.user.email,
 });
-
-const llm = new ChatOpenAI({ model: "gpt-4o" });
-const agent = await createOpenAIToolsAgent({
-  llm,
-  tools: [webSearch, readFile],
-  prompt,
-});
-
-const executor = new AgentExecutor({
-  agent,
-  tools: [webSearch, readFile],
-});
-
-// One call instruments all tools on the executor
-const governed = instrument(executor, {
-  agentId: "research-agent",
-  approvedScope: ["web_search", "read_file"],
-  tenantId: "acme-corp",
-  userId: "bob@acme.com",
-  enforcement: "block",
-});
-
-// Every tool invocation is now policy-checked
-const result = await governed.invoke({
-  input: "Find recent SEC filings for AAPL",
-});
+const toolNode = new ToolNode(tools);
 ```
+
+Each call is checked with the tool's arguments (a LangGraph `ToolCall` by its
+`args`). A refused call throws `ThothPolicyViolation` and the tool never runs.
+LangGraph's `ToolNode` returns that to the model as an error message by
+default; with `new ToolNode(tools, { handleToolErrors: false })` it stops the
+run instead.
 
 ---
 

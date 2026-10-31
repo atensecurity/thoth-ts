@@ -11,4 +11,5 @@ export { wrapOpenAITools } from "./integrations/openai.js";
 export { governAiSdkTools } from "./integrations/ai-sdk.js";
 export { governMcpClient } from "./integrations/mcp.js";
 export { governClaudeAgentOptions } from "./integrations/claude-agent-sdk.js";
+export { governLangChainTools } from "./integrations/langchain.js";
 //# sourceMappingURL=index.js.map
