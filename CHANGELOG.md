@@ -2,11 +2,7 @@
 
 All notable changes to `@atensec/thoth` are documented in this file.
 
-## 0.2.1 - 2026-10-31
-
-0.2.0 was tagged but never reached npm, because the release failed to install
-its development dependencies. 0.2.1 is the first published release with these
-changes.
+## 0.2.0 - 2026-10-31
 
 ### Fixed
 
