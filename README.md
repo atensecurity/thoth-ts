@@ -56,7 +56,7 @@ yarn add @atensec/thoth
 
 ```bash
 export THOTH_API_KEY="thoth_live_..."
-export THOTH_API_URL="https://enforce.<tenant>.<apex-domain>"
+export THOTH_API_URL="https://api.atensecurity.com" # optional: trial and self-serve default; Enterprise: your enforce. host
 export THOTH_LOG_LEVEL="DEBUG" # optional; falls back to LOG_LEVEL when unset
 ```
 
@@ -70,7 +70,7 @@ const governed = instrument(agent, {
   agentId: "document-summarizer",
   approvedScope: ["web_search", "read_file", "send_email"],
   tenantId: "your-tenant-id",
-  apiUrl: process.env.THOTH_API_URL!, // required if THOTH_API_URL is not set
+  // apiUrl defaults to THOTH_API_URL, then https://api.atensecurity.com
   userId: "alice@example.com",
   enforcement: "block", // default is "block"; options: observe | step_up | block | progressive
   // apiKey reads from THOTH_API_KEY env var automatically
@@ -653,7 +653,7 @@ All options are passed as the second argument to `instrument()`, `wrapAnthropicT
 | `agentId`              | `string`                    | Yes      | —                | Stable identifier for this agent. Used in policy rules and dashboard grouping. |
 | `tenantId`             | `string`                    | Yes      | —                | Your Maat tenant ID.                                                           |
 | `approvedScope`        | `string[]`                  | Yes      | —                | List of tool names this agent is authorized to call.                           |
-| `apiUrl`               | `string`                    | Yes\*    | `$THOTH_API_URL` | Tenant API base URL used for both `/v1/enforce` and `/v1/events/batch`.        |
+| `apiUrl`               | `string`                    | No       | `$THOTH_API_URL`, then `https://api.atensecurity.com` | Tenant API base URL used for both `/v1/enforce` and `/v1/events/batch`. Enterprise workspaces set their own host.        |
 | `userId`               | `string`                    | No       | `"system"`       | Identity of the user on whose behalf the agent acts.                           |
 | `enforcement`          | `EnforcementMode \| string` | No       | `"block"`        | Enforcement mode: `observe`, `step_up`, `block`, or `progressive`.             |
 | `failOpen`             | `boolean`                   | No       | `false`          | Allow on enforcer infrastructure failures (`network`, `429`, `5xx`).           |
@@ -661,7 +661,8 @@ All options are passed as the second argument to `instrument()`, `wrapAnthropicT
 | `stepUpTimeoutMinutes` | `number`                    | No       | `15`             | How long to wait for human approval before timing out a step-up hold.          |
 | `stepUpPollIntervalMs` | `number`                    | No       | `5000`           | How often to poll the enforcer for step-up approval status (milliseconds).     |
 
-\* `apiUrl` may be omitted only when `THOTH_API_URL` is set.
+`apiUrl` defaults to `THOTH_API_URL`, then to `https://api.atensecurity.com`, the API for trial
+and self-serve workspaces. Enterprise workspaces set their own host.
 
 ### TypeScript types
 
@@ -725,7 +726,7 @@ up automatically.
 | Variable          | Description                                                                                                                         | Example                                  |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `THOTH_API_KEY`   | API key from the Aten dashboard. Used as default if `apiKey` config option is not set.                                              | `thoth_live_abc123...`                   |
-| `THOTH_API_URL`   | Tenant API base URL used for both enforcement and event ingestion when `apiUrl` is not provided.                                    | `https://enforce.<tenant>.<apex-domain>` |
+| `THOTH_API_URL`   | Tenant API base URL for enforcement and events when `apiUrl` is not set; defaults to `https://api.atensecurity.com`.                                    | `https://enforce.<tenant>.<apex-domain>` |
 | `THOTH_AGENT_ID`  | The agent `init()` governs tools for, when `agentId` is not passed.                                                                 | `trader`                                 |
 | `THOTH_TENANT_ID` | Your tenant, read by `init()` when `tenantId` is not passed.                                                                        | `acme`                                   |
 | `THOTH_FAIL_OPEN` | Optional fail-open switch (`true/false`). When true, enforcer `network/429/5xx` failures return `ALLOW`. Auth failures still block. | `true`                                   |

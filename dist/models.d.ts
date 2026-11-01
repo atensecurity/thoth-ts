@@ -53,8 +53,9 @@ export interface ThothConfig {
     apiKey?: string;
     /**
      * Tenant API base URL used for both behavioral event ingestion and policy checks.
-     * Required directly or through THOTH_API_URL. Example:
-     * https://enforce.<tenant>.<apex-domain>
+     * Falls back to THOTH_API_URL, then to https://api.atensecurity.com, the API
+     * for trial and self-serve workspaces. Enterprise workspaces set their own
+     * host, for example https://enforce.<tenant>.<apex-domain>.
      */
     apiUrl?: string;
     stepUpTimeoutMinutes?: number;

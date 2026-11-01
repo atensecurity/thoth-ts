@@ -180,19 +180,19 @@ function tenantScopedEventId(tenantId: string): string {
   return `${tenant}:${crypto.randomUUID()}`;
 }
 
+/**
+ * The API for trial and self-serve workspaces. Enterprise workspaces have
+ * their own host and set it with config.apiUrl or THOTH_API_URL.
+ */
+export const DEFAULT_API_URL = "https://api.atensecurity.com";
+
 function resolveApiUrl(config: ThothConfig): string {
   const fromConfig = config.apiUrl?.trim() ?? "";
   const fromEnv = (
     (typeof process !== "undefined" && process.env?.THOTH_API_URL) ||
     ""
   ).trim();
-  const resolved = fromConfig || fromEnv;
-  if (!resolved) {
-    throw new Error(
-      "Thoth API URL is required (set config.apiUrl or THOTH_API_URL)",
-    );
-  }
-  return resolved.replace(/\/$/, "");
+  return (fromConfig || fromEnv || DEFAULT_API_URL).replace(/\/$/, "");
 }
 
 // Helper to detect async generator functions

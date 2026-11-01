@@ -2,6 +2,15 @@
 
 All notable changes to `@atensec/thoth` are documented in this file.
 
+## Unreleased
+
+### Changed
+
+- `apiUrl` defaults to `https://api.atensecurity.com`, the API for trial and
+  self-serve workspaces, when neither `apiUrl` nor `THOTH_API_URL` is set.
+  Previously the SDK refused to start without one. Enterprise workspaces keep
+  setting their own host; an explicit `apiUrl` or `THOTH_API_URL` always wins.
+
 ## 0.2.0 - 2026-10-31
 
 ### Fixed

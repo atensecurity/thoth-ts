@@ -761,18 +761,64 @@ describe("instrument()", () => {
     expect(body.task_context.task_id).toBe("T-412");
   });
 
-  it("throws when apiUrl is missing and THOTH_API_URL is unset", () => {
+  it("uses api.atensecurity.com when apiUrl and THOTH_API_URL are unset", async () => {
     const agent = new FakeAgent();
-    if (typeof process !== "undefined") {
-      delete process.env.THOTH_API_URL;
-    }
-    expect(() =>
-      instrument(agent, {
-        agentId: "test",
-        approvedScope: ["read:data"],
-        tenantId: "trantor",
+    vi.stubEnv("THOTH_API_URL", "");
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes("/v1/enforce") ? { decision: "ALLOW" } : {},
+          ),
       }),
-    ).toThrow("Thoth API URL is required");
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+    });
+    await agent.tools[0].run("arg");
+
+    const enforceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/enforce"),
+    );
+    expect(String(enforceCall?.[0])).toBe(
+      "https://api.atensecurity.com/v1/enforce",
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it("prefers THOTH_API_URL to the default", async () => {
+    const agent = new FakeAgent();
+    vi.stubEnv("THOTH_API_URL", "https://enforce.trantor.atensecurity.com/");
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes("/v1/enforce") ? { decision: "ALLOW" } : {},
+          ),
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+    });
+    await agent.tools[0].run("arg");
+
+    const enforceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/enforce"),
+    );
+    expect(String(enforceCall?.[0])).toBe(
+      "https://enforce.trantor.atensecurity.com/v1/enforce",
+    );
+    vi.unstubAllEnvs();
   });
 
   it("uses THOTH_ENVIRONMENT fallback when environment is omitted", async () => {
@@ -782,8 +828,9 @@ describe("instrument()", () => {
       process.env.THOTH_ENVIRONMENT = "dev";
     }
     vi.resetModules();
-    const { instrument: instrumentWithEnvFallback } =
-      await import("../instrumentor.js");
+    const { instrument: instrumentWithEnvFallback } = await import(
+      "../instrumentor.js"
+    );
 
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/v1/enforce")) {

@@ -13,6 +13,11 @@ export declare function claimCheckedCall(toolName: string, args: unknown): boole
  * a prefixed-name match, not a name-blind one).
  */
 export declare function claimCheckedMcpCall(toolName: string, args: unknown): boolean;
+/**
+ * The API for trial and self-serve workspaces. Enterprise workspaces have
+ * their own host and set it with config.apiUrl or THOTH_API_URL.
+ */
+export declare const DEFAULT_API_URL = "https://api.atensecurity.com";
 export declare function instrument<T extends object>(agent: T, config: ThothConfig): T;
 /** A tool as the inventory reads it. */
 export interface InventoryTool {
