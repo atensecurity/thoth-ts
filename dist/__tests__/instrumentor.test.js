@@ -151,6 +151,79 @@ describe("instrument()", () => {
         });
         await expect(agent.tools[0].run()).rejects.toThrow(ThothPolicyViolation);
     });
+    it("sends the enforcer every field the tool receives", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockImplementation((url) => {
+            if (url.includes("/v1/enforce")) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ decision: "ALLOW" }),
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                status: 202,
+                text: () => Promise.resolve(""),
+            });
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+            apiKey: "aten_test_key",
+        });
+        let deep = { to: "far@example.com" };
+        for (let i = 0; i < 20; i += 1)
+            deep = { next: deep };
+        const shared = { to: "shared@example.com" };
+        const loop = { to: "loop@example.com" };
+        loop.self = loop;
+        await agent.tools[0].run({
+            bcc: new Set(["set@example.com"]),
+            headers: new Map([["to", "map@example.com"]]),
+            address: { toJSON: () => ({ to: "json@example.com" }) },
+            deep,
+            first: shared,
+            second: shared,
+            loop,
+        });
+        const enforceCall = fetchMock.mock.calls.find((call) => String(call[0]).includes("/v1/enforce"));
+        const sent = JSON.parse(String(enforceCall[1].body)).tool_args;
+        expect(sent.bcc).toEqual(["set@example.com"]);
+        expect(sent.headers).toEqual({ to: "map@example.com" });
+        expect(sent.address).toEqual({ to: "json@example.com" });
+        let node = sent.deep;
+        for (let i = 0; i < 20; i += 1)
+            node = node.next;
+        expect(node).toEqual({ to: "far@example.com" });
+        expect(sent.first).toEqual({ to: "shared@example.com" });
+        expect(sent.second).toEqual({ to: "shared@example.com" });
+        expect(sent.loop).toEqual({ to: "loop@example.com", self: "[circular]" });
+    });
+    it("refuses arguments that explode when a shared object repeats", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ decision: "ALLOW" }),
+            status: 202,
+            text: () => Promise.resolve(""),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+            apiKey: "aten_test_key",
+        });
+        let node = [];
+        for (let i = 0; i < 40; i += 1)
+            node = [node, node];
+        await expect(agent.tools[0].run({ node })).rejects.toThrow("too large to evaluate");
+        expect(agent.tools[0].calls).toHaveLength(0);
+    });
     it("emits structured PRE/POST tool telemetry metadata", async () => {
         const agent = new FakeAgent();
         const fetchMock = vi.fn().mockImplementation((url) => {

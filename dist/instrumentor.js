@@ -155,9 +155,22 @@ function isAsyncGeneratorFunction(fn) {
     return (typeof fn === "function" &&
         fn.constructor?.name === "AsyncGeneratorFunction");
 }
-function toSerializable(value, seen, depth = 0) {
-    if (depth > 5)
-        return "[truncated]";
+const MAX_SERIALIZE_DEPTH = 64;
+const MAX_SERIALIZE_NODES = 100000;
+// Copies a value into plain JSON types for the enforcer. The tool runs on the
+// original objects, so the copy has to keep every field a policy might read
+// (the recipient of a message, for one): Maps and Sets keep their contents,
+// objects with toJSON use it, and a value nested past the depth limit is kept
+// as JSON text instead of a placeholder. `seen` holds the objects on the
+// current path only, so a value that appears twice is copied twice and only a
+// real cycle is marked. A value with more than 100,000 nodes (one shared
+// object repeated until it explodes, for one) throws, so the call is refused
+// rather than evaluated on a partial copy.
+function toSerializable(value, seen, depth = 0, budget = { left: MAX_SERIALIZE_NODES }) {
+    budget.left -= 1;
+    if (budget.left < 0) {
+        throw new Error("tool arguments are too large to evaluate");
+    }
     if (value == null)
         return value;
     if (typeof value === "string" ||
@@ -173,20 +186,46 @@ function toSerializable(value, seen, depth = 0) {
         return "[function]";
     if (value instanceof Date)
         return value.toISOString();
-    if (Array.isArray(value)) {
-        return value.map((item) => toSerializable(item, seen, depth + 1));
+    if (typeof value !== "object")
+        return String(value);
+    if (seen.has(value))
+        return "[circular]";
+    if (depth > MAX_SERIALIZE_DEPTH) {
+        try {
+            return JSON.stringify(value) ?? String(value);
+        }
+        catch {
+            return String(value);
+        }
     }
-    if (typeof value === "object") {
-        if (seen.has(value))
-            return "[circular]";
-        seen.add(value);
+    seen.add(value);
+    try {
+        if (Array.isArray(value)) {
+            return value.map((item) => toSerializable(item, seen, depth + 1, budget));
+        }
+        if (value instanceof Set) {
+            return Array.from(value, (item) => toSerializable(item, seen, depth + 1, budget));
+        }
+        if (value instanceof Map) {
+            const out = {};
+            for (const [k, v] of value) {
+                out[String(k)] = toSerializable(v, seen, depth + 1, budget);
+            }
+            return out;
+        }
+        const toJSON = value.toJSON;
+        if (typeof toJSON === "function") {
+            return toSerializable(toJSON.call(value), seen, depth + 1, budget);
+        }
         const out = {};
         for (const [k, v] of Object.entries(value)) {
-            out[k] = toSerializable(v, seen, depth + 1);
+            out[k] = toSerializable(v, seen, depth + 1, budget);
         }
         return out;
     }
-    return String(value);
+    finally {
+        seen.delete(value);
+    }
 }
 function toolArgsFromCall(args) {
     if (args.length === 0)

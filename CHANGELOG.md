@@ -4,6 +4,18 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- The copy of the tool arguments sent to the enforcer no longer loses
+  structure. Maps and Sets keep their contents (they used to serialise as `{}`),
+  objects with `toJSON` use it, and nothing nested up to 64 levels is replaced by
+  `"[truncated]"`; deeper values are kept as JSON text. An object that appears
+  twice in the arguments is no longer marked `"[circular]"` the second time; only
+  a real cycle is. The tool still runs on your original objects, so a policy sees
+  the same fields the tool does, such as the recipient of a message. Arguments
+  with more than 100,000 values, such as one shared object repeated until it
+  explodes, throw before the tool runs.
+
 ### Changed
 
 - `apiUrl` defaults to `https://api.atensecurity.com`, the API for trial and
