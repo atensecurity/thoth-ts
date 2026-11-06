@@ -872,6 +872,37 @@ describe("instrument()", () => {
     vi.unstubAllEnvs();
   });
 
+  it("prefers an explicit apiUrl to THOTH_API_URL", async () => {
+    const agent = new FakeAgent();
+    vi.stubEnv("THOTH_API_URL", "https://enforce.env.atensecurity.com");
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes("/v1/enforce") ? { decision: "ALLOW" } : {},
+          ),
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    instrument(agent, {
+      agentId: "test",
+      approvedScope: ["read:data"],
+      tenantId: "trantor",
+      apiUrl: "https://enforce.field.atensecurity.com",
+    });
+    await agent.tools[0].run("arg");
+
+    const enforceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/enforce"),
+    );
+    expect(String(enforceCall?.[0])).toBe(
+      "https://enforce.field.atensecurity.com/v1/enforce",
+    );
+    vi.unstubAllEnvs();
+  });
+
   it("prefers THOTH_API_URL to the default", async () => {
     const agent = new FakeAgent();
     vi.stubEnv("THOTH_API_URL", "https://enforce.trantor.atensecurity.com/");
