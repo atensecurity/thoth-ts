@@ -272,6 +272,14 @@ function readNumber(value: unknown): number | undefined {
     : undefined;
 }
 
+function readRecordOrUndefined(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function readStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
@@ -285,12 +293,23 @@ function readStringArray(value: unknown): string[] | undefined {
 
 function toEnforcementDecision(payload: unknown): EnforcementDecision {
   const record = readRecord(payload);
-  const decision = parseDecision(
+  let decision = parseDecision(
     record.authorization_decision ??
       record.authorizationDecision ??
       record.decision,
   );
   if (!decision) return FALLBACK;
+  // A deferred action is held for review: the enforcer sends decision STEP_UP
+  // with a hold token while authorization_decision stays DEFER. Wait on the
+  // hold, as the Python and Go SDKs do, instead of failing as an unanswered
+  // deferral.
+  if (
+    decision === DecisionType.DEFER &&
+    parseDecision(record.decision) === DecisionType.STEP_UP &&
+    readText(record.hold_token ?? record.holdToken)
+  ) {
+    decision = DecisionType.STEP_UP;
+  }
   return {
     decision,
     authorizationDecision: readText(
@@ -330,6 +349,17 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
       record.receipt && typeof record.receipt === "object"
         ? (record.receipt as Record<string, unknown>)
         : undefined,
+    terminalReceipt: readRecordOrUndefined(
+      record.terminal_receipt ?? record.terminalReceipt,
+    ),
+    profileId: readText(record.profile_id ?? record.profileId),
+    profileVersion: readText(record.profile_version ?? record.profileVersion),
+    tenantDeclarationsStatus: readText(
+      record.tenant_declarations_status ?? record.tenantDeclarationsStatus,
+    ),
+    riskClassification: readRecordOrUndefined(
+      record.risk_classification ?? record.riskClassification,
+    ),
     modifiedToolArgs:
       record.modified_tool_args && typeof record.modified_tool_args === "object"
         ? (record.modified_tool_args as Record<string, unknown>)
@@ -401,6 +431,7 @@ export async function awaitStepUpDecision(
     headers["Authorization"] = `Bearer ${config.apiKey}`;
   }
   const deadline = Date.now() + config.stepUpTimeoutMinutes * 60 * 1000;
+  let approvalNoticeShown = false;
 
   while (Date.now() < deadline) {
     try {
@@ -421,14 +452,33 @@ export async function awaitStepUpDecision(
       const resolved = payload.resolved === true;
       const resolution = parseDecision(payload.resolution);
       if (resolved && resolution) {
+        const terminalReceipt = readRecordOrUndefined(payload.terminal_receipt);
+        const receipt =
+          readRecordOrUndefined(payload.initial_receipt) &&
+          Object.keys(payload.initial_receipt as object).length > 0
+            ? (payload.initial_receipt as Record<string, unknown>)
+            : undefined;
         return {
           decision: resolution,
           reason: readText(payload.reason),
           violationId: readText(payload.violation_id ?? payload.violationId),
+          receipt,
+          terminalReceipt:
+            terminalReceipt && Object.keys(terminalReceipt).length > 0
+              ? terminalReceipt
+              : undefined,
         };
       }
 
       if (payload.resolved === false) {
+        const approvalUrl = readText(payload.approval_url);
+        if (approvalUrl && !approvalNoticeShown) {
+          approvalNoticeShown = true;
+          const tool = readText(payload.tool_name) ?? "this action";
+          console.warn(
+            `thoth: ${tool} is waiting for approval. Approve or deny it at ${approvalUrl}`,
+          );
+        }
         await sleep(config.stepUpPollIntervalMs);
         continue;
       }

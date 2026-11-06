@@ -130,6 +130,12 @@ export interface EnforcementDecision {
     policyReferences?: string[];
     modelSignals?: string[];
     receipt?: Record<string, unknown>;
+    /** Signed receipt written when a held action is approved or denied. */
+    terminalReceipt?: Record<string, unknown>;
+    profileId?: string;
+    profileVersion?: string;
+    tenantDeclarationsStatus?: string;
+    riskClassification?: Record<string, unknown>;
     modifiedToolArgs?: Record<string, unknown>;
     modificationReason?: string;
     deferReason?: string;

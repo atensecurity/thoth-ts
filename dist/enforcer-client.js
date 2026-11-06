@@ -187,6 +187,11 @@ function readNumber(value) {
         ? value
         : undefined;
 }
+function readRecordOrUndefined(value) {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : undefined;
+}
 function readStringArray(value) {
     if (!Array.isArray(value)) {
         return undefined;
@@ -199,11 +204,20 @@ function readStringArray(value) {
 }
 function toEnforcementDecision(payload) {
     const record = readRecord(payload);
-    const decision = parseDecision(record.authorization_decision ??
+    let decision = parseDecision(record.authorization_decision ??
         record.authorizationDecision ??
         record.decision);
     if (!decision)
         return FALLBACK;
+    // A deferred action is held for review: the enforcer sends decision STEP_UP
+    // with a hold token while authorization_decision stays DEFER. Wait on the
+    // hold, as the Python and Go SDKs do, instead of failing as an unanswered
+    // deferral.
+    if (decision === DecisionType.DEFER &&
+        parseDecision(record.decision) === DecisionType.STEP_UP &&
+        readText(record.hold_token ?? record.holdToken)) {
+        decision = DecisionType.STEP_UP;
+    }
     return {
         decision,
         authorizationDecision: readText(record.authorization_decision ?? record.authorizationDecision),
@@ -227,6 +241,11 @@ function toEnforcementDecision(payload) {
         receipt: record.receipt && typeof record.receipt === "object"
             ? record.receipt
             : undefined,
+        terminalReceipt: readRecordOrUndefined(record.terminal_receipt ?? record.terminalReceipt),
+        profileId: readText(record.profile_id ?? record.profileId),
+        profileVersion: readText(record.profile_version ?? record.profileVersion),
+        tenantDeclarationsStatus: readText(record.tenant_declarations_status ?? record.tenantDeclarationsStatus),
+        riskClassification: readRecordOrUndefined(record.risk_classification ?? record.riskClassification),
         modifiedToolArgs: record.modified_tool_args && typeof record.modified_tool_args === "object"
             ? record.modified_tool_args
             : record.modifiedToolArgs && typeof record.modifiedToolArgs === "object"
@@ -277,6 +296,7 @@ export async function awaitStepUpDecision(config, holdToken) {
         headers["Authorization"] = `Bearer ${config.apiKey}`;
     }
     const deadline = Date.now() + config.stepUpTimeoutMinutes * 60 * 1000;
+    let approvalNoticeShown = false;
     while (Date.now() < deadline) {
         try {
             const resp = await fetch(`${managedApiUrl}/v1/enforce/hold/${encodeURIComponent(holdToken)}`, {
@@ -292,13 +312,28 @@ export async function awaitStepUpDecision(config, holdToken) {
             const resolved = payload.resolved === true;
             const resolution = parseDecision(payload.resolution);
             if (resolved && resolution) {
+                const terminalReceipt = readRecordOrUndefined(payload.terminal_receipt);
+                const receipt = readRecordOrUndefined(payload.initial_receipt) &&
+                    Object.keys(payload.initial_receipt).length > 0
+                    ? payload.initial_receipt
+                    : undefined;
                 return {
                     decision: resolution,
                     reason: readText(payload.reason),
                     violationId: readText(payload.violation_id ?? payload.violationId),
+                    receipt,
+                    terminalReceipt: terminalReceipt && Object.keys(terminalReceipt).length > 0
+                        ? terminalReceipt
+                        : undefined,
                 };
             }
             if (payload.resolved === false) {
+                const approvalUrl = readText(payload.approval_url);
+                if (approvalUrl && !approvalNoticeShown) {
+                    approvalNoticeShown = true;
+                    const tool = readText(payload.tool_name) ?? "this action";
+                    console.warn(`thoth: ${tool} is waiting for approval. Approve or deny it at ${approvalUrl}`);
+                }
                 await sleep(config.stepUpPollIntervalMs);
                 continue;
             }

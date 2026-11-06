@@ -85,6 +85,111 @@ describe("enforcer-client response mapping", () => {
     expect(decision.reason).toBe("requires approval");
   });
 
+  it("waits on the hold when a deferred action is held for review", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            decision: "STEP_UP",
+            authorization_decision: "DEFER",
+            hold_token: "tok_defer",
+          }),
+      }),
+    );
+
+    const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", [
+      "read:data",
+    ]);
+
+    expect(decision.decision).toBe("STEP_UP");
+    expect(decision.authorizationDecision).toBe("DEFER");
+    expect(decision.holdToken).toBe("tok_defer");
+  });
+
+  it("still treats a DEFER without a hold as a deferral", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            decision: "STEP_UP",
+            authorization_decision: "DEFER",
+          }),
+      }),
+    );
+
+    const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", [
+      "read:data",
+    ]);
+
+    expect(decision.decision).toBe("DEFER");
+  });
+
+  it("carries the receipts and tells the operator where to approve", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            resolved: false,
+            tool_name: "email.send",
+            approval_url: "https://app.example/approvals/ap_1",
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            resolved: true,
+            resolution: "ALLOW",
+            initial_receipt: { decision_id: "d1" },
+            terminal_receipt: { decision_id: "d2" },
+          }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const decision = await awaitStepUpDecision(buildConfig(), "tok_123");
+
+    expect(decision.decision).toBe("ALLOW");
+    expect(decision.receipt).toEqual({ decision_id: "d1" });
+    expect(decision.terminalReceipt).toEqual({ decision_id: "d2" });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("https://app.example/approvals/ap_1"),
+    );
+    warn.mockRestore();
+  });
+
+  it("keeps the profile and declaration fields the enforcer returns", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            decision: "ALLOW",
+            profile_id: "finance",
+            profile_version: "3",
+            tenant_declarations_status: "declared",
+            risk_classification: { tier: "high" },
+          }),
+      }),
+    );
+
+    const decision = await checkEnforce(buildConfig(), "read:data", "sess_1", [
+      "read:data",
+    ]);
+
+    expect(decision.profileId).toBe("finance");
+    expect(decision.profileVersion).toBe("3");
+    expect(decision.tenantDeclarationsStatus).toBe("declared");
+    expect(decision.riskClassification).toEqual({ tier: "high" });
+  });
+
   it("resolves hold-status payload into ALLOW decision", async () => {
     vi.stubGlobal(
       "fetch",

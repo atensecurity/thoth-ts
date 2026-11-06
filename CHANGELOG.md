@@ -6,6 +6,17 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ### Fixed
 
+- A deferred action that the enforcer holds for review is now waited on like any
+  other held action. It used to fail straight away as an unanswered deferral,
+  although the hold was open.
+
+### Added
+
+- When a held action is approved or denied, the decision carries the signed
+  `terminalReceipt` (and the `receipt` from when it was held). While it waits,
+  the SDK prints one line saying where to approve or deny it. `EnforcementDecision`
+  also carries `profileId`, `profileVersion`, `tenantDeclarationsStatus` and
+  `riskClassification` when the enforcer returns them.
 - The copy of the tool arguments sent to the enforcer no longer loses
   structure. Maps and Sets keep their contents (they used to serialise as `{}`),
   objects with `toJSON` use it, and nothing nested up to 64 levels is replaced by
