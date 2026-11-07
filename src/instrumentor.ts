@@ -346,7 +346,7 @@ function logDecision(
     holdToken?: string;
     actionAttestationId?: string;
   },
-  phase: "enforce" | "step_up_resolved",
+  phase: "enforce" | "step_up_resolved" | "observe",
   sessionId: string,
   traceId: string,
   actionAttestationId: string,
@@ -366,15 +366,17 @@ function logDecision(
   );
 }
 
+// Maps the enforcer's modified arguments back onto the call. The shape follows
+// how the call was sent (see toolArgsFromCall): one object argument is sent as
+// itself, anything else as { args: [...] }. Returns undefined when the
+// modification cannot be applied, so the caller refuses the call instead of
+// running the original, unmodified arguments.
 function applyModifiedArgs(
   args: unknown[],
   modifiedToolArgs?: Record<string, unknown>,
-): unknown[] {
-  if (!modifiedToolArgs) return args;
-
-  const argsValue = modifiedToolArgs.args;
-  if (Array.isArray(argsValue)) {
-    return argsValue;
+): unknown[] | undefined {
+  if (!modifiedToolArgs || Object.keys(modifiedToolArgs).length === 0) {
+    return undefined;
   }
 
   if (
@@ -384,6 +386,11 @@ function applyModifiedArgs(
     !Array.isArray(args[0])
   ) {
     return [modifiedToolArgs];
+  }
+
+  const argsValue = modifiedToolArgs.args;
+  if (Array.isArray(argsValue)) {
+    return argsValue;
   }
 
   if ("arg0" in modifiedToolArgs) {
@@ -410,7 +417,7 @@ function applyModifiedArgs(
     return indexed.map((entry) => entry.value);
   }
 
-  return args;
+  return undefined;
 }
 
 type EnforceOutcome = {
@@ -1009,6 +1016,33 @@ export function openSession(
       actionAttestationId: string,
     ): Promise<EnforceOutcome> => {
       if (cfg.enforcement === EnforcementMode.OBSERVE) {
+        // Observe still asks the enforcer: it records what it would have held
+        // or blocked, which is what an operator reads to decide whether an
+        // agent is ready to enforce. The answer is only logged; the call always
+        // runs with its original arguments and an enforcer failure never fails it.
+        try {
+          const observed = await checkEnforce(
+            cfg,
+            toolName,
+            sessionId,
+            pendingSessionToolCalls(toolCalls, toolName),
+            toolArgsFromCall(args),
+            enforcementTraceId,
+            actionAttestationId,
+          );
+          logDecision(
+            toolName,
+            observed,
+            "observe",
+            sessionId,
+            enforcementTraceId,
+            actionAttestationId,
+          );
+        } catch {
+          console.error(
+            `thoth: observe-mode enforcer check failed for ${toolName}`,
+          );
+        }
         return { effectiveArgs: args };
       }
 
@@ -1036,6 +1070,21 @@ export function openSession(
       if (initialExplanation) {
         decision.explanation = initialExplanation;
       }
+      const applyModification = (
+        modified: Record<string, unknown> | undefined,
+        finalDecision: EnforcementDecision,
+      ): EnforceOutcome => {
+        const effectiveArgs = applyModifiedArgs(args, modified);
+        if (!effectiveArgs) {
+          throw createPolicyViolation(
+            toolName,
+            finalDecision,
+            "modified arguments could not be applied; the call was not run",
+            initialExplanation,
+          );
+        }
+        return { effectiveArgs, decision: finalDecision };
+      };
       logDecision(
         toolName,
         decision,
@@ -1147,11 +1196,20 @@ export function openSession(
             },
           );
         }
-        if (resolved.decision === DecisionType.MODIFY) {
-          return {
-            effectiveArgs: applyModifiedArgs(args, resolved.modifiedToolArgs),
-            decision: resolved,
-          };
+        // A held call that is approved comes back as a plain ALLOW, so the
+        // arguments the enforcer redacted when it held the call are on the
+        // initial decision.
+        const heldModification =
+          resolved.decision === DecisionType.ALLOW &&
+          decision.modifiedToolArgs &&
+          Object.keys(decision.modifiedToolArgs).length > 0
+            ? decision.modifiedToolArgs
+            : undefined;
+        if (resolved.decision === DecisionType.MODIFY || heldModification) {
+          return applyModification(
+            heldModification ?? resolved.modifiedToolArgs,
+            resolved,
+          );
         }
         return { effectiveArgs: args, decision: resolved };
       }
@@ -1191,10 +1249,7 @@ export function openSession(
         );
       }
       if (decision.decision === DecisionType.MODIFY) {
-        return {
-          effectiveArgs: applyModifiedArgs(args, decision.modifiedToolArgs),
-          decision,
-        };
+        return applyModification(decision.modifiedToolArgs, decision);
       }
       return { effectiveArgs: args, decision };
     };

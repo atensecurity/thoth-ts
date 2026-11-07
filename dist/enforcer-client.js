@@ -36,6 +36,7 @@ export async function checkEnforce(config, toolName, sessionId, sessionToolCalls
     };
     if (config.apiKey) {
         headers["Authorization"] = `Bearer ${config.apiKey}`;
+        headers["X-Api-Key"] = config.apiKey;
     }
     try {
         const resp = await fetch(`${managedApiUrl}/v1/enforce`, {
@@ -111,6 +112,7 @@ export async function requestHumanExplanation(config, decision, toolName, sessio
     };
     if (config.apiKey) {
         headers["Authorization"] = `Bearer ${config.apiKey}`;
+        headers["X-Api-Key"] = config.apiKey;
     }
     try {
         const resp = await fetch(`${managedApiUrl}/v1/explain`, {
@@ -294,6 +296,7 @@ export async function awaitStepUpDecision(config, holdToken) {
     const headers = {};
     if (config.apiKey) {
         headers["Authorization"] = `Bearer ${config.apiKey}`;
+        headers["X-Api-Key"] = config.apiKey;
     }
     const deadline = Date.now() + config.stepUpTimeoutMinutes * 60 * 1000;
     let approvalNoticeShown = false;

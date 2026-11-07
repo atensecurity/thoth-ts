@@ -4,8 +4,29 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-06
+
 ### Fixed
 
+- Observe mode now sends each call to the enforcer, as the product defines
+  observe (evaluate, record what would have been held or blocked, allow). The
+  SDK used to skip the enforcer entirely when `enforcement` was `observe`, so
+  those agents produced no "would have blocked" data and the ready-to-enforce
+  checks had nothing to read. The tool always runs with its original arguments,
+  a hold or modification in the answer is ignored, and an enforcer failure
+  never fails the call.
+- Enforce, explain and hold-status requests send the API key in both
+  `X-Api-Key` and `Authorization: Bearer`, as event ingestion already does. The
+  SDK sent only Bearer, so behind an ingress that strips `Authorization` every
+  call was blocked.
+- A held call that is approved now runs with the arguments the enforcer redacted
+  when it held the call. The approval comes back as a plain allow, so the call
+  used to start with the original arguments (an approved email to an outside
+  recipient was sent with its card number). A modification the SDK cannot map
+  back onto the call, or one that arrives with no arguments, now refuses the
+  call with a `ThothPolicyViolation` instead of running the original arguments.
+  A tool whose own parameter is named `args` is no longer misread as the
+  positional form.
 - A deferred action that the enforcer holds for review is now waited on like any
   other held action. It used to fail straight away as an unanswered deferral,
   although the hold was open.

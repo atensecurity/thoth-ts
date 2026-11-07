@@ -190,6 +190,33 @@ describe("enforcer-client response mapping", () => {
     expect(decision.riskClassification).toEqual({ tier: "high" });
   });
 
+  it("sends the key in both auth headers on enforce and on the hold poll", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ decision: "ALLOW" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ resolved: true, resolution: "ALLOW" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const config = { ...buildConfig(), apiKey: "key-123" };
+
+    await checkEnforce(config, "read:data", "sess_1", ["read:data"]);
+    await awaitStepUpDecision(config, "tok_1");
+
+    for (const call of fetchMock.mock.calls) {
+      const headers = (call[1] as RequestInit).headers as Record<
+        string,
+        string
+      >;
+      expect(headers["X-Api-Key"]).toBe("key-123");
+      expect(headers["Authorization"]).toBe("Bearer key-123");
+    }
+  });
+
   it("resolves hold-status payload into ALLOW decision", async () => {
     vi.stubGlobal(
       "fetch",

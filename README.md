@@ -741,7 +741,7 @@ When decision logging is enabled at debug level, SDK decision logs include `hold
 
 | Mode        | Value         | Behavior                                                                                                                          |
 | ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Observe     | `observe`     | All tool calls pass through. Events are still emitted for audit. No blocking, no step-up. Use for initial rollout and baselining. |
+| Observe     | `observe`     | All tool calls pass through. Each call is still sent to the enforcer, which records what it would have held or blocked, and events are emitted for audit. No blocking, no step-up. Use for initial rollout and baselining. |
 | Step-Up     | `step_up`     | Suspicious calls trigger a human approval request. Tool execution is held until approved or timed out.                            |
 | Block       | `block`       | Calls that violate policy throw `ThothPolicyViolation` immediately before the tool executes.                                      |
 | Progressive | `progressive` | Escalating mode. The enforcer chooses the appropriate response per tool call based on policy rules.                               |

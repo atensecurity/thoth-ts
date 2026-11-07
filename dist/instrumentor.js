@@ -269,18 +269,24 @@ function logDecision(toolName, decision, phase, sessionId, traceId, actionAttest
     }
     console.debug("thoth %s decision tool=%s decision=%s reason_code=%s trace_id=%s action_attestation_id=%s session_id=%s", phase, toolName, decision.decision, decision.decisionReasonCode ?? "", traceId, decision.actionAttestationId ?? actionAttestationId, sessionId);
 }
+// Maps the enforcer's modified arguments back onto the call. The shape follows
+// how the call was sent (see toolArgsFromCall): one object argument is sent as
+// itself, anything else as { args: [...] }. Returns undefined when the
+// modification cannot be applied, so the caller refuses the call instead of
+// running the original, unmodified arguments.
 function applyModifiedArgs(args, modifiedToolArgs) {
-    if (!modifiedToolArgs)
-        return args;
-    const argsValue = modifiedToolArgs.args;
-    if (Array.isArray(argsValue)) {
-        return argsValue;
+    if (!modifiedToolArgs || Object.keys(modifiedToolArgs).length === 0) {
+        return undefined;
     }
     if (args.length === 1 &&
         args[0] !== null &&
         typeof args[0] === "object" &&
         !Array.isArray(args[0])) {
         return [modifiedToolArgs];
+    }
+    const argsValue = modifiedToolArgs.args;
+    if (Array.isArray(argsValue)) {
+        return argsValue;
     }
     if ("arg0" in modifiedToolArgs) {
         return [modifiedToolArgs["arg0"]];
@@ -300,7 +306,7 @@ function applyModifiedArgs(args, modifiedToolArgs) {
         indexed[indexed.length - 1].index === indexed.length - 1) {
         return indexed.map((entry) => entry.value);
     }
-    return args;
+    return undefined;
 }
 function payloadSizeBytes(value) {
     try {
@@ -752,6 +758,17 @@ export function openSession(config, options = {}) {
     const wrap = (toolName, originalRun) => {
         const enforce = async (args, actionAttestationId) => {
             if (cfg.enforcement === EnforcementMode.OBSERVE) {
+                // Observe still asks the enforcer: it records what it would have held
+                // or blocked, which is what an operator reads to decide whether an
+                // agent is ready to enforce. The answer is only logged; the call always
+                // runs with its original arguments and an enforcer failure never fails it.
+                try {
+                    const observed = await checkEnforce(cfg, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), enforcementTraceId, actionAttestationId);
+                    logDecision(toolName, observed, "observe", sessionId, enforcementTraceId, actionAttestationId);
+                }
+                catch {
+                    console.error(`thoth: observe-mode enforcer check failed for ${toolName}`);
+                }
                 return { effectiveArgs: args };
             }
             const decision = await checkEnforce(cfg, toolName, sessionId, pendingSessionToolCalls(toolCalls, toolName), toolArgsFromCall(args), enforcementTraceId, actionAttestationId);
@@ -762,6 +779,13 @@ export function openSession(config, options = {}) {
             if (initialExplanation) {
                 decision.explanation = initialExplanation;
             }
+            const applyModification = (modified, finalDecision) => {
+                const effectiveArgs = applyModifiedArgs(args, modified);
+                if (!effectiveArgs) {
+                    throw createPolicyViolation(toolName, finalDecision, "modified arguments could not be applied; the call was not run", initialExplanation);
+                }
+                return { effectiveArgs, decision: finalDecision };
+            };
             logDecision(toolName, decision, "enforce", sessionId, enforcementTraceId, actionAttestationId);
             if (decision.decision === DecisionType.STEP_UP) {
                 const holdToken = decision.holdToken;
@@ -821,11 +845,16 @@ export function openSession(config, options = {}) {
                         explanation: initialExplanation,
                     });
                 }
-                if (resolved.decision === DecisionType.MODIFY) {
-                    return {
-                        effectiveArgs: applyModifiedArgs(args, resolved.modifiedToolArgs),
-                        decision: resolved,
-                    };
+                // A held call that is approved comes back as a plain ALLOW, so the
+                // arguments the enforcer redacted when it held the call are on the
+                // initial decision.
+                const heldModification = resolved.decision === DecisionType.ALLOW &&
+                    decision.modifiedToolArgs &&
+                    Object.keys(decision.modifiedToolArgs).length > 0
+                    ? decision.modifiedToolArgs
+                    : undefined;
+                if (resolved.decision === DecisionType.MODIFY || heldModification) {
+                    return applyModification(heldModification ?? resolved.modifiedToolArgs, resolved);
                 }
                 return { effectiveArgs: args, decision: resolved };
             }
@@ -854,10 +883,7 @@ export function openSession(config, options = {}) {
                 });
             }
             if (decision.decision === DecisionType.MODIFY) {
-                return {
-                    effectiveArgs: applyModifiedArgs(args, decision.modifiedToolArgs),
-                    decision,
-                };
+                return applyModification(decision.modifiedToolArgs, decision);
             }
             return { effectiveArgs: args, decision };
         };

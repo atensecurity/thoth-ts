@@ -81,14 +81,15 @@ try {
         assert.equal(calls.length, before);
       } else {
         assert.equal(await fns.read(input), canaries.result);
-        assert.deepEqual(calls.at(-1), mode === 'MODIFY' ? { replacement: 'approved' } : input);
+        assert.deepEqual(calls.at(-1), mode === 'MODIFY' || mode === 'STEP_UP' ? { replacement: 'approved' } : input);
       }
     }
     await assert.rejects(fns.read({ throw: true, token: canaries.args }), e => e === thrown);
     const observed = wrap({ read: async input => { assert.equal(input.token, canaries.args); return canaries.result; } }, { ...config, enforcement: 'observe' });
     const count = requests.filter(r => r.path === '/v1/enforce').length;
     assert.equal(await observed.read({ token: canaries.args }), canaries.result);
-    assert.equal(requests.filter(r => r.path === '/v1/enforce').length, count);
+    // Observe still asks the enforcer, so it records what would have been held, and runs the call as written.
+    assert.equal(requests.filter(r => r.path === '/v1/enforce').length, count + 1);
   }
   const stream = { tools: [{ name: 'read', async *run(input) { assert.equal(input.token, canaries.args); yield canaries.result; } }] };
   instrument(stream, config);
@@ -98,7 +99,7 @@ try {
 
   const telemetry = requests.filter(r => r.path === '/v1/events/batch');
   const enforce = requests.filter(r => r.path === '/v1/enforce');
-  assert.equal(enforce.length, 19);
+  assert.equal(enforce.length, 22);
   for (const { body } of enforce) {
     assert.equal(body.tool_args.token, canaries.args);
     assert.deepEqual(body.task_context, config.taskContext);

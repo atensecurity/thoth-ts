@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { instrument } from "../instrumentor.js";
-import { ThothPolicyViolation } from "../models.js";
+import { EnforcementMode, ThothPolicyViolation, } from "../models.js";
 class FakeTool {
     constructor() {
         this.name = "read:data";
@@ -347,6 +347,130 @@ describe("instrument()", () => {
         const result = await agent.tools[0].run("original");
         expect(result).toBe("result");
         expect(agent.tools[0].calls).toContainEqual(["sanitized"]);
+    });
+    it("runs a held call that is approved with the arguments redacted when it was held", async () => {
+        const agent = new FakeAgent();
+        vi.stubGlobal("fetch", vi.fn().mockImplementation((url) => {
+            if (url.includes("/v1/enforce/hold/")) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ resolved: true, resolution: "ALLOW" }),
+                });
+            }
+            if (url.includes("/v1/enforce")) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        decision: "STEP_UP",
+                        hold_token: "tok_redacted",
+                        modified_tool_args: {
+                            to: "out@example.com",
+                            body: "[REDACTED]",
+                        },
+                    }),
+                });
+            }
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+        }));
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+            stepUpTimeoutMinutes: 1,
+            stepUpPollIntervalMs: 1,
+        });
+        await agent.tools[0].run({ to: "out@example.com", body: "card 4111" });
+        expect(agent.tools[0].calls).toEqual([
+            [{ to: "out@example.com", body: "[REDACTED]" }],
+        ]);
+    });
+    it.each([
+        ["no arguments", undefined],
+        ["empty arguments", {}],
+        ["arguments of an unknown shape", { unrelated: 1 }],
+    ])("refuses a call whose modification arrives with %s", async (_name, modified) => {
+        const agent = new FakeAgent();
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({
+                decision: "ALLOW",
+                authorization_decision: "MODIFY",
+                modified_tool_args: modified,
+            }),
+        }));
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+        });
+        await expect(agent.tools[0].run("a", "b")).rejects.toThrow(ThothPolicyViolation);
+        expect(agent.tools[0].calls).toHaveLength(0);
+    });
+    it("reads a tool's own parameter named args as a parameter, not the positional form", async () => {
+        const agent = new FakeAgent();
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({
+                decision: "ALLOW",
+                authorization_decision: "MODIFY",
+                modified_tool_args: { args: ["[REDACTED]"], to: "a@example.com" },
+            }),
+        }));
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+        });
+        await agent.tools[0].run({ args: ["secret"], to: "a@example.com" });
+        expect(agent.tools[0].calls).toEqual([
+            [{ args: ["[REDACTED]"], to: "a@example.com" }],
+        ]);
+    });
+    it("observe mode asks the enforcer and still runs the call with its original arguments", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockImplementation((url) => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(url.includes("/v1/enforce")
+                ? {
+                    decision: "STEP_UP",
+                    hold_token: "tok_observed",
+                    modified_tool_args: { input: "[REDACTED]" },
+                }
+                : {}),
+        }));
+        vi.stubGlobal("fetch", fetchMock);
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+            enforcement: EnforcementMode.OBSERVE,
+        });
+        await agent.tools[0].run("original");
+        expect(agent.tools[0].calls).toEqual([["original"]]);
+        const enforceCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith("/v1/enforce"));
+        expect(enforceCalls).toHaveLength(1);
+        expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/enforce/hold/"))).toBe(false);
+    });
+    it("observe mode runs the call when the enforcer is down", async () => {
+        const agent = new FakeAgent();
+        vi.stubGlobal("fetch", vi
+            .fn()
+            .mockImplementation((url) => url.includes("/v1/enforce")
+            ? Promise.reject(new Error("enforcer down"))
+            : Promise.resolve({ ok: true, json: () => Promise.resolve({}) })));
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+            enforcement: EnforcementMode.OBSERVE,
+        });
+        await agent.tools[0].run("original");
+        expect(agent.tools[0].calls).toEqual([["original"]]);
     });
     it("raises ThothPolicyViolation on defer decision", async () => {
         const agent = new FakeAgent();
