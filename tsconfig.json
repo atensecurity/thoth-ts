@@ -3,6 +3,7 @@
     "emitDeclarationOnly": false,
     "moduleResolution": "NodeNext",
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,

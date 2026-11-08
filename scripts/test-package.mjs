@@ -24,6 +24,11 @@ try {
   const [packed] = JSON.parse(run([
     'pack', '--ignore-scripts', '--json', '--pack-destination', consumer,
   ], source));
+  // The detector spec must ship, built and as source, or local scanning cannot load.
+  const shipped = packed.files.map((file) => file.path);
+  for (const required of ['dist/detectors.v1.json', 'src/detectors.v1.json']) {
+    assert.ok(shipped.includes(required), `${required} is missing from the package`);
+  }
   writeFileSync(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
   run([
     'install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund',

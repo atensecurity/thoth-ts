@@ -21,9 +21,10 @@ for human approval, or silently observing based on your configured enforcement m
 7. [Configuration Reference](#configuration-reference)
 8. [Error Handling](#error-handling)
 9. [Environment Variables](#environment-variables)
-10. [Enforcement Modes](#enforcement-modes)
-11. [Policy Decisions](#policy-decisions)
-12. [Dashboard](#dashboard)
+10. [Withholding Values From Thoth](#withholding-values-from-thoth)
+11. [Enforcement Modes](#enforcement-modes)
+12. [Policy Decisions](#policy-decisions)
+13. [Dashboard](#dashboard)
 
 ---
 
@@ -660,6 +661,10 @@ All options are passed as the second argument to `instrument()`, `wrapAnthropicT
 | `apiKey`               | `string`                    | No       | `$THOTH_API_KEY` | API key from the Aten dashboard.                                               |
 | `stepUpTimeoutMinutes` | `number`                    | No       | `15`             | How long to wait for human approval before timing out a step-up hold.          |
 | `stepUpPollIntervalMs` | `number`                    | No       | `5000`           | How often to poll the enforcer for step-up approval status (milliseconds).     |
+| `dataHandlingToolArguments` | `"hash" \| "redact" \| "drop"` | No | `$THOTH_DATA_HANDLING_TOOL_ARGUMENTS` | Withhold tool-argument values from Thoth. Unset sends them as before. See [Withholding Values From Thoth](#withholding-values-from-thoth). |
+| `dataHandlingPrompts`  | `"hash" \| "drop"`          | No       | `$THOTH_DATA_HANDLING_PROMPTS` | Hash or drop prompt-bearing text in the context objects you pass. |
+| `dataHandlingSalt`     | `string`                    | No       | `$THOTH_DATA_HANDLING_SALT` | Client-held salt for `hash`; random per process when unset. Never sent. |
+| `dataHandlingLocalScan` | `boolean`                  | No       | `true` when arguments are withheld | Scan withheld arguments locally and send `client_findings`. `$THOTH_DATA_HANDLING_LOCAL_SCAN=off` turns it off. |
 
 `apiUrl` defaults to `THOTH_API_URL`, then to `https://api.atensecurity.com`, the API for trial
 and self-serve workspaces. Enterprise workspaces set their own host.
@@ -732,8 +737,106 @@ up automatically.
 | `THOTH_FAIL_OPEN` | Optional fail-open switch (`true/false`). When true, enforcer `network/429/5xx` failures return `ALLOW`. Auth failures still block. | `true`                                   |
 | `THOTH_LOG_LEVEL` | Optional SDK decision-log level override (`DEBUG`, `INFO`, `WARN`, `ERROR`). Falls back to `LOG_LEVEL` when unset.                  | `DEBUG`                                  |
 
+| `THOTH_DATA_HANDLING_TOOL_ARGUMENTS` | Optional `hash`, `redact` or `drop`: withhold tool-argument values from Thoth (see below). | `redact` |
+| `THOTH_DATA_HANDLING_PROMPTS` | Optional `hash` or `drop` for prompt-bearing context text. | `hash` |
+| `THOTH_DATA_HANDLING_SALT` | Optional salt for `hash`; random per process when unset. | `a-long-random-secret` |
+| `THOTH_DATA_HANDLING_LOCAL_SCAN` | Optional `on` or `off`: scan withheld arguments locally and send findings (default `on` when arguments are withheld). | `off` |
+
 When decision logging is enabled at debug level, SDK decision logs include `hold_token` for
 `STEP_UP` flows.
+
+---
+
+## Withholding Values From Thoth
+
+> Not in a published release yet: this ships in the next release of `@atensec/thoth`.
+
+By default the SDK sends a tool call's argument values to Thoth so value-based rules and outbound
+data checks can run. You can opt in, per client, to keeping the values on your side. With nothing
+set, behavior is unchanged.
+
+```typescript
+import { init } from "@atensec/thoth";
+
+await init({
+  dataHandlingToolArguments: "redact", // or "hash" | "drop"
+  dataHandlingPrompts: "hash", // or "drop"
+  dataHandlingSalt: process.env.MY_THOTH_SALT, // optional, see below
+});
+```
+
+The same options work on `instrument()`, the `wrap*`/`govern*` helpers and `ThothClient`, and
+`THOTH_DATA_HANDLING_TOOL_ARGUMENTS`, `THOTH_DATA_HANDLING_PROMPTS`, `THOTH_DATA_HANDLING_SALT` and
+`THOTH_DATA_HANDLING_LOCAL_SCAN` set them from the environment. An invalid value throws when the
+client is built. The SDK never falls back to sending the raw value.
+
+**Tool arguments**
+
+- `hash`: keys and structure are kept, and each value (string, number, boolean) becomes
+  `hmac-sha256:<hex>`, an HMAC-SHA256 keyed with your salt over the value's canonical JSON. `null`
+  stays `null`.
+- `redact`: keys and structure are kept, and each value becomes `"<redacted>"`.
+- `drop`: no arguments are sent.
+
+Nested arguments are walked to depth 16 and 5,000 values. Anything beyond that becomes `"<truncated>"`.
+JavaScript has one number type, so `1` and `1.0` hash the same; another SDK that tells them apart
+hashes `1.0` differently.
+
+**Prompts.** The SDK has no prompt field of its own. The mode applies to the context you pass in
+`taskContext`, `identityBinding` and `policyContext`: values under prompt-bearing key names
+(`prompt`, `message(s)`, `input`, `query`, `text`, `content`, `instruction(s)`, `task`, `goal`,
+`description`, `summary`, `note(s)`, `history`, `transcript`, `response`, `output` and similar, at
+any depth, ignoring case, `_` and `-`) are hashed or omitted, and any other string longer than 512
+characters is hashed (`hash`) or replaced by `"<redacted>"` (`drop`). Identifiers, `purpose`,
+`dataClassification` and `sessionIntent` are sent as given, so do not put user text in them.
+
+**The salt.** Hashing uses a salt that only your process holds; Thoth has no key to it. Equal values
+produce equal hashes only under the same salt. With the default random salt that means within one
+process. Set the same `THOTH_DATA_HANDLING_SALT` on every process that should match values. Anyone who
+has the salt can confirm a guess at a low-entropy value, so keep it secret.
+
+**Local scanning.** So checks that need values can still run, the SDK scans the raw arguments in your
+process before withholding them (and the destination host in the request metadata), and sends the
+result as `client_findings` next to `data_handling`:
+
+- It reports counts and categories (credentials, email addresses, phone numbers, SSN-shaped numbers,
+  confidentiality phrases), whether a `path` or `paths` value looks sensitive, a destination hostname,
+  and recipient domains. It never reports values, paths, the local part of an address, display names or
+  message text.
+- The detectors are heuristic regular expressions from a versioned spec (`thoth-detectors.v1`). A
+  finding is a signal, not proof that data is sensitive, and no finding is not proof that it is not.
+- The report names the scanner (`atensec-thoth-ts`), its version and its ruleset hash. Thoth cannot
+  verify a client scan: a workspace relies on it only after the owner sets `accept_local_scan` and
+  lists the hash in `accepted_scanner_ruleset_hashes`. The hash this SDK sends is
+  `3d4388b164bcf97a8823d2e6d3e03a6f5b10724d10faa539d59bcb38590eda44`. Findings only ever raise a
+  decision.
+- A check that cannot finish (an error, arguments deeper than 16 levels or beyond 5,000 values for
+  `dlp` and `recipient`, non-ASCII text in recipient fields that engines read differently, a report
+  over 4 KB) is left out of `scanned`, so Thoth sees it as missing, not clean. Arguments that are not
+  an object send no findings.
+- A workspace with `require_client_findings` holds every call from a client that withholds arguments
+  and sends no findings, so it needs a client that ships DLP scanning. If your workspace turns that on,
+  keep local scanning on.
+- It is on whenever tool arguments are withheld. Set `dataHandlingLocalScan: false` or
+  `THOTH_DATA_HANDLING_LOCAL_SCAN=off` to send no findings. With only `dataHandlingPrompts` set,
+  arguments are sent as before and nothing is scanned.
+
+**What still reaches Thoth.** Tool names, decisions, session and user ids, agent and tenant ids,
+timing, and the tool-call sequence. Key names are sent in `hash` and `redact` mode, and not in
+`drop`. With local scanning on, also the findings above: counts, categories, a destination hostname
+and recipient domains. The SDK declares what it applied, and Thoth records that declaration with the
+decision.
+
+**What you give up.** Rules that read argument values (path patterns, regular expressions, free-text
+keywords) and outbound data checks cannot run on values Thoth does not have. When such a rule exists,
+the call is held (`STEP_UP` with reason code `args_withheld`) instead of being decided on values it
+cannot see, and the `ThothPolicyViolation` message says so. A server never returns modified arguments
+for a call whose arguments were withheld; if one ever does, the SDK fails closed: the tool does not
+run and a `ThothPolicyViolation` says the server returned an argument rewrite although arguments were
+withheld, which points to a server or contract problem.
+
+This option limits what Thoth receives; it does not make any statement about what your own tools,
+logs or other services do with the values.
 
 ---
 

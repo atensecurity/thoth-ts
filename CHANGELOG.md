@@ -4,6 +4,41 @@ All notable changes to `@atensec/thoth` are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Opt-in withholding of values at the source. Set `dataHandlingToolArguments`
+  (`hash`, `redact` or `drop`) and `dataHandlingPrompts` (`hash` or `drop`) on
+  `init()`, `instrument()`, the `wrap*`/`govern*` helpers or `ThothClient`, or the
+  environment variables `THOTH_DATA_HANDLING_TOOL_ARGUMENTS`,
+  `THOTH_DATA_HANDLING_PROMPTS` and `THOTH_DATA_HANDLING_SALT`. Hashes use a
+  client-held salt (HMAC-SHA256, `node:crypto`). The enforce and explain requests
+  declare what was applied in `data_handling`, a rule that needs argument values
+  holds the call (`args_withheld`) and says why, and modified arguments are never
+  applied to a call whose arguments were withheld: if the server returns a rewrite
+  anyway, the call fails closed (the tool does not run, `ThothPolicyViolation`)
+  because that is a server or contract problem. Nothing changes when unset; an
+  invalid value throws when the client is built. No new runtime dependencies.
+- Local scanning when tool arguments are withheld. With
+  `dataHandlingToolArguments` set to `hash`, `redact` or `drop`, the SDK scans the
+  raw arguments (and the destination host in the request metadata) in your process
+  before withholding them, and sends `client_findings` next to `data_handling`:
+  counts and categories of credentials, email addresses, phone numbers, SSN-shaped
+  numbers and confidentiality phrases, whether a path looks sensitive, a
+  destination hostname, and recipient domains. The report never contains values,
+  paths, local parts or display names. The detectors are heuristic. The scanner
+  identifies itself as `atensec-thoth-ts` with ruleset `thoth-detectors.v1`,
+  ruleset hash
+  `3d4388b164bcf97a8823d2e6d3e03a6f5b10724d10faa539d59bcb38590eda44`; a workspace
+  relies on the report only after it sets `accept_local_scan` and lists that hash
+  in `accepted_scanner_ruleset_hashes`. A check that fails, hits the depth or value
+  bound, or would not fit the 4 KB limit is left out of `scanned` instead of
+  reported clean. `THOTH_DATA_HANDLING_LOCAL_SCAN=off` (or
+  `dataHandlingLocalScan: false`) sends no findings. A workspace with
+  `require_client_findings` holds calls from a client that withholds arguments and
+  sends no findings. The detector spec ships in the package
+  (`dist/detectors.v1.json`, `src/detectors.v1.json`); `resolveJsonModule` is now
+  on in the build so the JSON is emitted next to the code.
+
 ## 0.3.0 - 2026-11-06
 
 ### Fixed

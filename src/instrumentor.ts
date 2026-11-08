@@ -17,6 +17,11 @@ import {
   requestHumanExplanation,
 } from "./enforcer-client.js";
 import { emitBehavioralEvent } from "./emitter.js";
+import {
+  argumentsWithheld,
+  dataHandlingFor,
+  localScanEnabled,
+} from "./data-handling.js";
 
 /** The call a governed wrapper has checked and is running now. */
 interface CheckedCall {
@@ -501,44 +506,51 @@ function decisionToMetadata(
   return metadata;
 }
 
+const ARGS_WITHHELD = "args_withheld";
+const ARGS_WITHHELD_NOTE =
+  "Thoth was not sent this call's argument values (data handling is set to withhold them), so a rule that needs the " +
+  "values could not be checked and the call was held for review. Approve it, or change the data handling setting " +
+  "(THOTH_DATA_HANDLING_TOOL_ARGUMENTS) if value-based rules should run.";
+
 function createPolicyViolation(
   toolName: string,
   decision: EnforcementDecision,
   fallbackReason: string,
   explanation?: EnforcementDecision["explanation"],
 ): ThothPolicyViolation {
-  return new ThothPolicyViolation(
-    toolName,
-    decision.reason ?? fallbackReason,
-    decision.violationId,
-    {
-      decisionReasonCode: decision.decisionReasonCode,
-      actionClassification: decision.actionClassification,
-      authorizationDecision:
-        decision.authorizationDecision ?? decision.decision,
-      deferTimeoutSeconds: decision.deferTimeoutSeconds,
-      stepUpTimeoutSeconds: decision.stepUpTimeoutSeconds,
-      riskScore: decision.riskScore,
-      latencyMs: decision.latencyMs,
-      packId: decision.packId,
-      packVersion: decision.packVersion,
-      ruleVersion: decision.ruleVersion,
-      regulatoryRegimes: decision.regulatoryRegimes,
-      matchedRuleIds: decision.matchedRuleIds,
-      matchedControlIds: decision.matchedControlIds,
-      policyReferences: decision.policyReferences,
-      modelSignals: decision.modelSignals,
-      receipt: decision.receipt,
-      decisionEnvelopeVersion: decision.decisionEnvelopeVersion,
-      enforcementTraceId: decision.enforcementTraceId,
-      actionAttestationId: decision.actionAttestationId,
-      fastmlFeatures: decision.fastmlFeatures,
-      scoreComponents: decision.scoreComponents,
-      topContributors: decision.topContributors,
-      decisionEvidence: decision.decisionEvidence,
-      explanation,
-    },
-  );
+  let reason = decision.reason ?? fallbackReason;
+  if (
+    decision.decisionReasonCode === ARGS_WITHHELD &&
+    !reason.includes(ARGS_WITHHELD_NOTE)
+  ) {
+    reason = `${reason} [args_withheld: ${ARGS_WITHHELD_NOTE}]`;
+  }
+  return new ThothPolicyViolation(toolName, reason, decision.violationId, {
+    decisionReasonCode: decision.decisionReasonCode,
+    actionClassification: decision.actionClassification,
+    authorizationDecision: decision.authorizationDecision ?? decision.decision,
+    deferTimeoutSeconds: decision.deferTimeoutSeconds,
+    stepUpTimeoutSeconds: decision.stepUpTimeoutSeconds,
+    riskScore: decision.riskScore,
+    latencyMs: decision.latencyMs,
+    packId: decision.packId,
+    packVersion: decision.packVersion,
+    ruleVersion: decision.ruleVersion,
+    regulatoryRegimes: decision.regulatoryRegimes,
+    matchedRuleIds: decision.matchedRuleIds,
+    matchedControlIds: decision.matchedControlIds,
+    policyReferences: decision.policyReferences,
+    modelSignals: decision.modelSignals,
+    receipt: decision.receipt,
+    decisionEnvelopeVersion: decision.decisionEnvelopeVersion,
+    enforcementTraceId: decision.enforcementTraceId,
+    actionAttestationId: decision.actionAttestationId,
+    fastmlFeatures: decision.fastmlFeatures,
+    scoreComponents: decision.scoreComponents,
+    topContributors: decision.topContributors,
+    decisionEvidence: decision.decisionEvidence,
+    explanation,
+  });
 }
 
 function baseToolEventMetadata(
@@ -860,6 +872,10 @@ export function openSession(
     apiUrl: string;
   };
   cfg.apiUrl = apiUrl;
+  // Resolve data handling now so an invalid setting fails when the client is
+  // built, never on a call that would then send values unprotected.
+  dataHandlingFor(cfg);
+  localScanEnabled(cfg);
   const sessionId = options.sessionId || crypto.randomUUID();
   const enforcementTraceId = cfg.enforcementTraceId ?? sessionId;
   // Shared with other sessions only for actingFor (actingForShared).
@@ -1074,6 +1090,22 @@ export function openSession(
         modified: Record<string, unknown> | undefined,
         finalDecision: EnforcementDecision,
       ): EnforceOutcome => {
+        if (argumentsWithheld(cfg)) {
+          // The server only saw hashes or placeholders, so a rewrite (which a
+          // conforming server never sends) would feed those into the tool, and
+          // running the original arguments would hide a server or contract
+          // problem. Fail closed: the tool does not run.
+          throw createPolicyViolation(
+            toolName,
+            {
+              ...finalDecision,
+              reason:
+                "the server returned an argument rewrite although argument values were withheld (data handling); this indicates a server or contract problem; the call was not run",
+            },
+            "argument rewrite refused",
+            initialExplanation,
+          );
+        }
         const effectiveArgs = applyModifiedArgs(args, modified);
         if (!effectiveArgs) {
           throw createPolicyViolation(

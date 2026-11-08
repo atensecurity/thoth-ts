@@ -110,6 +110,31 @@ export interface ThothConfig {
      * 429, 5xx) return ALLOW so workloads continue.
      */
     failOpen?: boolean;
+    /**
+     * Opt-in: withhold tool-argument values from Thoth at the source. `hash`
+     * replaces every leaf with a keyed hash, `redact` with "<redacted>" (keys
+     * kept), `drop` sends no arguments. Falls back to
+     * THOTH_DATA_HANDLING_TOOL_ARGUMENTS. An invalid value throws when the
+     * client is built. Unset sends arguments as before.
+     */
+    dataHandlingToolArguments?: "hash" | "redact" | "drop";
+    /**
+     * Opt-in: `hash` or `drop` prompt-bearing text in the context objects you
+     * pass. Falls back to THOTH_DATA_HANDLING_PROMPTS.
+     */
+    dataHandlingPrompts?: "hash" | "drop";
+    /**
+     * Client-held salt for `hash`; never sent to Thoth. Falls back to
+     * THOTH_DATA_HANDLING_SALT, else a random per-process salt.
+     */
+    dataHandlingSalt?: string;
+    /**
+     * With tool arguments withheld, scan the raw arguments in this process and
+     * send what was found (counts, categories, hostnames, recipient domains) as
+     * `client_findings`. On by default whenever arguments are withheld; false or
+     * THOTH_DATA_HANDLING_LOCAL_SCAN=off sends no findings.
+     */
+    dataHandlingLocalScan?: boolean;
 }
 export interface EnforcementDecision {
     decision: DecisionType;

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, EventType, } from "./models.js";
 import { awaitStepUpDecision, checkEnforce, requestHumanExplanation, } from "./enforcer-client.js";
 import { emitBehavioralEvent } from "./emitter.js";
+import { argumentsWithheld, dataHandlingFor, localScanEnabled, } from "./data-handling.js";
 // A lower layer (an MCP client under a framework's tool) may skip checking the
 // call again, but only once, and only that exact call: the same tool name with
 // the same arguments Thoth checked. Any other call inside the wrapper, and a
@@ -373,8 +374,17 @@ function decisionToMetadata(decision) {
     }
     return metadata;
 }
+const ARGS_WITHHELD = "args_withheld";
+const ARGS_WITHHELD_NOTE = "Thoth was not sent this call's argument values (data handling is set to withhold them), so a rule that needs the " +
+    "values could not be checked and the call was held for review. Approve it, or change the data handling setting " +
+    "(THOTH_DATA_HANDLING_TOOL_ARGUMENTS) if value-based rules should run.";
 function createPolicyViolation(toolName, decision, fallbackReason, explanation) {
-    return new ThothPolicyViolation(toolName, decision.reason ?? fallbackReason, decision.violationId, {
+    let reason = decision.reason ?? fallbackReason;
+    if (decision.decisionReasonCode === ARGS_WITHHELD &&
+        !reason.includes(ARGS_WITHHELD_NOTE)) {
+        reason = `${reason} [args_withheld: ${ARGS_WITHHELD_NOTE}]`;
+    }
+    return new ThothPolicyViolation(toolName, reason, decision.violationId, {
         decisionReasonCode: decision.decisionReasonCode,
         actionClassification: decision.actionClassification,
         authorizationDecision: decision.authorizationDecision ?? decision.decision,
@@ -635,6 +645,10 @@ export function openSession(config, options = {}) {
     const apiUrl = resolveApiUrl(config);
     const cfg = { ...DEFAULTS, ...config };
     cfg.apiUrl = apiUrl;
+    // Resolve data handling now so an invalid setting fails when the client is
+    // built, never on a call that would then send values unprotected.
+    dataHandlingFor(cfg);
+    localScanEnabled(cfg);
     const sessionId = options.sessionId || crypto.randomUUID();
     const enforcementTraceId = cfg.enforcementTraceId ?? sessionId;
     // Shared with other sessions only for actingFor (actingForShared).
@@ -780,6 +794,16 @@ export function openSession(config, options = {}) {
                 decision.explanation = initialExplanation;
             }
             const applyModification = (modified, finalDecision) => {
+                if (argumentsWithheld(cfg)) {
+                    // The server only saw hashes or placeholders, so a rewrite (which a
+                    // conforming server never sends) would feed those into the tool, and
+                    // running the original arguments would hide a server or contract
+                    // problem. Fail closed: the tool does not run.
+                    throw createPolicyViolation(toolName, {
+                        ...finalDecision,
+                        reason: "the server returned an argument rewrite although argument values were withheld (data handling); this indicates a server or contract problem; the call was not run",
+                    }, "argument rewrite refused", initialExplanation);
+                }
                 const effectiveArgs = applyModifiedArgs(args, modified);
                 if (!effectiveArgs) {
                     throw createPolicyViolation(toolName, finalDecision, "modified arguments could not be applied; the call was not run", initialExplanation);

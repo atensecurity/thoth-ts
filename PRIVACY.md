@@ -24,14 +24,52 @@ Regex matching alone cannot guarantee PHI removal. Length/timing and activity
 patterns also remain observable. Application logs and provider requests are
 outside this boundary.
 
+## Withholding values at the source (opt-in)
+
+> Not in a published release yet: this ships in the next release of `@atensec/thoth`.
+
+By default the SDK sends full tool arguments and task context to the authorization endpoints
+(`/v1/enforce`, `/v1/explain`) so that value-based rules and outbound data checks can run. You can
+opt in, per client, to withhold them with `dataHandlingToolArguments` (`hash`, `redact`, `drop`) and
+`dataHandlingPrompts` (`hash`, `drop`), or `THOTH_DATA_HANDLING_TOOL_ARGUMENTS` and
+`THOTH_DATA_HANDLING_PROMPTS`. Nothing changes when they are unset.
+
+With a mode set, the SDK does not send tool-argument values to Thoth. It transforms them in your
+process before the request is built and declares what it did in a `data_handling` field on the
+request. Prompt-bearing text and long free text in the task context, identity binding and policy
+context get the prompts mode; identifiers there are sent as given, and so are `sessionIntent`,
+`purpose` and `dataClassification`, which you set.
+
+Still sent to Thoth: tool names, decisions and their evidence, key names of tool arguments (except in
+`drop` mode), session ids, user ids, agent and tenant ids, timing, the tool-call sequence, and the
+identifiers and labels above. `hash` values are HMAC-SHA256 keyed with a salt that stays with your
+client (`THOTH_DATA_HANDLING_SALT`, else random per process); Thoth does not hold it, and equal values
+match only under the same salt. A low-entropy value can be confirmed by anyone who has the salt.
+
+Local scan findings. So rules that need values can still be answered, a client that withholds tool
+arguments also scans the raw arguments in its own process (heuristic patterns, `thoth-detectors.v1`)
+and sends `client_findings`: counts and categories of credentials, emails, phone numbers,
+SSN-shaped numbers and confidentiality phrases, whether a path looks sensitive, one destination
+hostname, and recipient domains. It never sends values, paths, the local part of an address, display
+names or message text. A hostname or a recipient domain can itself be sensitive to you; set
+`THOTH_DATA_HANDLING_LOCAL_SCAN=off` to send no findings. Thoth cannot verify the scan: it relies on
+it only if your workspace opted in and listed the scanner's ruleset hash. A workspace that requires
+client findings holds every call from a client that withholds arguments and sends none.
+
+Effect on decisions: rules and outbound data checks that need argument values cannot run on values
+Thoth does not have. A call that such a rule would examine is held for review (`STEP_UP`, reason code
+`args_withheld`) rather than decided blind, and with `drop` some checks fall back on tool-name
+heuristics. This option limits what Thoth receives; it does not make any statement about what your
+own tools, logs or other services do with the values.
+
 ## What still leaves the process
 
-| Destination                   | Data                                                                                                                                                                                                 |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/v1/events/batch`            | Minimal evidence described above; API key in Authorization and X-Api-Key headers                                                                                                                     |
-| `/v1/enforce`                 | Original serialized arguments, identity binding, policy context, task context, purpose, data classification, session intent, identity/scope/history and correlation fields; API key in Authorization |
-| `/v1/explain` (BLOCK/STEP_UP) | Original serialized arguments, identity/scope/history, decision evidence and correlation fields; API key in Authorization                                                                            |
-| `/v1/enforce/hold/{token}`    | Hold token in URL; API key in Authorization                                                                                                                                                          |
+| Destination                   | Data                                                                                                                                                                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/events/batch`            | Minimal evidence described above; API key in Authorization and X-Api-Key headers                                                                                                                                                  |
+| `/v1/enforce`                 | Original serialized arguments (unless withheld, see above), identity binding, policy context, task context, purpose, data classification, session intent, identity/scope/history and correlation fields; API key in Authorization |
+| `/v1/explain` (BLOCK/STEP_UP) | Original serialized arguments (unless withheld, see above), identity/scope/history, decision evidence and correlation fields; API key in Authorization                                                                            |
+| `/v1/enforce/hold/{token}`    | Hold token in URL; API key in Authorization                                                                                                                                                                                       |
 
 Authorization/explanation requests can contain secrets and PHI. They continue to
 use the configured trusted tenant API. Removing telemetry content does **not**

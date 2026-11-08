@@ -1,4 +1,10 @@
 import {
+  dataHandlingFor,
+  localScanEnabled,
+  type DataHandlingOptions,
+} from "./data-handling.js";
+import { loadScanner } from "./local-scan.js";
+import {
   EnforcementDecision,
   DecisionType,
   HumanExplanation,
@@ -44,7 +50,35 @@ type EnforceConfig = Required<
     | "dataClassification"
     | "taskContext"
   > &
-  Pick<ThothConfig, "identityBinding">;
+  Pick<ThothConfig, "identityBinding"> &
+  DataHandlingOptions;
+
+/**
+ * Scans the raw arguments (before they are withheld) and applies the client's
+ * data handling to a request, last, so nothing added earlier reaches the wire
+ * untransformed. A no-op when data handling is not configured.
+ */
+function withDataHandling(
+  config: EnforceConfig,
+  payload: Record<string, unknown>,
+  toolName: string,
+  rawToolArgs: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const handling = dataHandlingFor(config);
+  if (handling === undefined) return payload;
+  if (handling.toolArguments !== undefined && localScanEnabled(config)) {
+    // Only counts, categories, hostnames and recipient domains are reported; a
+    // check that cannot finish is left out so Thoth sees it as missing.
+    const findings = loadScanner()?.clientFindings(
+      toolName,
+      rawToolArgs ?? {},
+      metadata,
+    );
+    if (findings !== undefined) payload["client_findings"] = findings;
+  }
+  return handling.apply(payload);
+}
 
 function defaultIdentityBinding(
   config: Pick<
@@ -91,44 +125,53 @@ export async function checkEnforce(
     headers["Authorization"] = `Bearer ${config.apiKey}`;
     headers["X-Api-Key"] = config.apiKey;
   }
+  const metadata =
+    config.policyContext !== undefined
+      ? { policy_context: config.policyContext }
+      : undefined;
+  // Built outside the try below: an invalid data-handling setting must throw,
+  // never fall back to sending values unprotected.
+  const enforcePayload = withDataHandling(
+    config,
+    {
+      agent_id: config.agentId,
+      tenant_id: config.tenantId,
+      user_id: config.userId,
+      tool_name: toolName,
+      session_id: sessionId,
+      session_tool_calls: sessionToolCalls,
+      approved_scope: config.approvedScope,
+      enforcement_mode: config.enforcement,
+      environment: config.environment,
+      identity_binding: defaultIdentityBinding(config),
+      ...(toolArgs !== undefined && { tool_args: toolArgs }),
+      ...(metadata !== undefined && { metadata }),
+      ...(enforcementTraceId !== undefined && {
+        enforcement_trace_id: enforcementTraceId,
+      }),
+      ...(resolvedActionAttestationId !== undefined && {
+        action_attestation_id: resolvedActionAttestationId,
+      }),
+      ...(config.sessionIntent !== undefined && {
+        session_intent: config.sessionIntent,
+      }),
+      ...(config.purpose !== undefined && { purpose: config.purpose }),
+      ...(config.dataClassification !== undefined && {
+        data_classification: config.dataClassification,
+      }),
+      ...(config.taskContext !== undefined && {
+        task_context: config.taskContext,
+      }),
+    },
+    toolName,
+    toolArgs,
+    metadata,
+  );
   try {
     const resp = await fetch(`${managedApiUrl}/v1/enforce`, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        agent_id: config.agentId,
-        tenant_id: config.tenantId,
-        user_id: config.userId,
-        tool_name: toolName,
-        session_id: sessionId,
-        session_tool_calls: sessionToolCalls,
-        approved_scope: config.approvedScope,
-        enforcement_mode: config.enforcement,
-        environment: config.environment,
-        identity_binding: defaultIdentityBinding(config),
-        ...(toolArgs !== undefined && { tool_args: toolArgs }),
-        ...(config.policyContext !== undefined && {
-          metadata: { policy_context: config.policyContext },
-        }),
-        ...(enforcementTraceId !== undefined && {
-          enforcement_trace_id: enforcementTraceId,
-        }),
-        ...(resolvedActionAttestationId !== undefined && {
-          action_attestation_id: resolvedActionAttestationId,
-        }),
-        ...(config.sessionIntent !== undefined && {
-          session_intent: config.sessionIntent,
-        }),
-        ...(config.purpose !== undefined && {
-          purpose: config.purpose,
-        }),
-        ...(config.dataClassification !== undefined && {
-          data_classification: config.dataClassification,
-        }),
-        ...(config.taskContext !== undefined && {
-          task_context: config.taskContext,
-        }),
-      }),
+      body: JSON.stringify(enforcePayload),
       signal: AbortSignal.timeout(5000),
     });
     if (!resp.ok) {
@@ -194,33 +237,41 @@ export async function requestHumanExplanation(
     headers["X-Api-Key"] = config.apiKey;
   }
 
+  const explainPayload = withDataHandling(
+    config,
+    {
+      agent_id: config.agentId,
+      tenant_id: config.tenantId,
+      user_id: config.userId,
+      tool_name: toolName,
+      session_id: sessionId,
+      session_tool_calls: sessionToolCalls,
+      approved_scope: config.approvedScope,
+      ...(toolArgs !== undefined && { tool_args: toolArgs }),
+      ...(resolvedActionAttestationId !== undefined && {
+        action_attestation_id: resolvedActionAttestationId,
+      }),
+      decision: decision.decision,
+      decision_reason_code: decision.decisionReasonCode,
+      action_classification: decision.actionClassification,
+      violation_id: decision.violationId,
+      risk_score: decision.riskScore,
+      regulatory_regimes: decision.regulatoryRegimes ?? [],
+      matched_rule_ids: decision.matchedRuleIds ?? [],
+      matched_control_ids: decision.matchedControlIds ?? [],
+      policy_references: decision.policyReferences ?? [],
+      step_up_timeout_seconds: decision.stepUpTimeoutSeconds,
+    },
+    toolName,
+    toolArgs,
+    undefined,
+  );
+
   try {
     const resp = await fetch(`${managedApiUrl}/v1/explain`, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        agent_id: config.agentId,
-        tenant_id: config.tenantId,
-        user_id: config.userId,
-        tool_name: toolName,
-        session_id: sessionId,
-        session_tool_calls: sessionToolCalls,
-        approved_scope: config.approvedScope,
-        ...(toolArgs !== undefined && { tool_args: toolArgs }),
-        ...(resolvedActionAttestationId !== undefined && {
-          action_attestation_id: resolvedActionAttestationId,
-        }),
-        decision: decision.decision,
-        decision_reason_code: decision.decisionReasonCode,
-        action_classification: decision.actionClassification,
-        violation_id: decision.violationId,
-        risk_score: decision.riskScore,
-        regulatory_regimes: decision.regulatoryRegimes ?? [],
-        matched_rule_ids: decision.matchedRuleIds ?? [],
-        matched_control_ids: decision.matchedControlIds ?? [],
-        policy_references: decision.policyReferences ?? [],
-        step_up_timeout_seconds: decision.stepUpTimeoutSeconds,
-      }),
+      body: JSON.stringify(explainPayload),
       signal: AbortSignal.timeout(3000),
     });
     if (!resp.ok) {
