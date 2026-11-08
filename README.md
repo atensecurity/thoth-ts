@@ -808,7 +808,7 @@ result as `client_findings` next to `data_handling`:
 - The report names the scanner (`atensec-thoth-ts`), its version and its ruleset hash. Thoth cannot
   verify a client scan: a workspace relies on it only after the owner sets `accept_local_scan` and
   lists the hash in `accepted_scanner_ruleset_hashes`. The hash this SDK sends is
-  `3d4388b164bcf97a8823d2e6d3e03a6f5b10724d10faa539d59bcb38590eda44`. Findings only ever raise a
+  `db797fde60f300719b9dac8a360efd6ce8b1f7313587cc714aebf7a93428434b`. Findings only ever raise a
   decision.
 - A check that cannot finish (an error, arguments deeper than 16 levels or beyond 5,000 values for
   `dlp` and `recipient`, non-ASCII text in recipient fields that engines read differently, a report
