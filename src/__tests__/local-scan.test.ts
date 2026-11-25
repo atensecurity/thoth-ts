@@ -31,7 +31,7 @@ interface GoldenCase {
 // enforcer and the Python SDK hold; update the spec, the golden, every vendored
 // copy and every pin in one pull request.
 const PINNED_RULESET_HASH =
-  "db797fde60f300719b9dac8a360efd6ce8b1f7313587cc714aebf7a93428434b";
+  "9e7e25ec9d1f280b12f6006726cfc9efdaf5a0dc24585b08eb513e140ff3ae46";
 
 const scanner = new LocalScanner(SPEC, { version: "9.9.9" });
 
@@ -147,6 +147,9 @@ describe("golden fixtures", () => {
       "known_divergence.cjk_before_email": email,
       "known_divergence.arabic_indic_digits_ssn": [],
       "known_divergence.nbsp_in_phone": [],
+      "known_divergence.arabic_indic_digit_mrn": [],
+      "known_divergence.fullwidth_digits_dob": [],
+      "known_divergence.nbsp_between_label_and_date": [],
       "known_divergence.recipient_kelvin_sign_domain": [
         { kind: "recipient", status: "unresolved", data_move: false },
       ],

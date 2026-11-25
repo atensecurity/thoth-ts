@@ -220,7 +220,7 @@ describe("on the wire", () => {
         }
         const findings = body.client_findings;
         expect(findings.version).toBe(1);
-        expect(findings.scanner.ruleset_hash).toBe("db797fde60f300719b9dac8a360efd6ce8b1f7313587cc714aebf7a93428434b");
+        expect(findings.scanner.ruleset_hash).toBe("9e7e25ec9d1f280b12f6006726cfc9efdaf5a0dc24585b08eb513e140ff3ae46");
         expect(findings.scanner.ruleset_id).toBe("thoth-detectors.v1");
         expect(findings.scanned).toEqual([
             "dlp",
