@@ -15,6 +15,15 @@ const FALLBACK: EnforcementDecision = {
   decision: DecisionType.BLOCK,
   reason: "enforcer unavailable",
 };
+// The enforcer's default request limit. A larger body is refused locally and never sent: the
+// server answers 413 but may reset the connection while the client is still uploading, which
+// would look like a transport failure, and fail-open treats that as allow.
+export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+const REQUEST_TOO_LARGE: EnforcementDecision = {
+  decision: DecisionType.BLOCK,
+  reason:
+    "enforcer_request_too_large: the request is larger than the enforcer accepts, so the action is not allowed; use smaller tool arguments or ask a reviewer for a held action",
+};
 const FAIL_OPEN_FALLBACK: EnforcementDecision = {
   decision: DecisionType.ALLOW,
   reason: "enforcer unavailable (fail-open)",
@@ -167,11 +176,19 @@ export async function checkEnforce(
     toolArgs,
     metadata,
   );
+  const requestBody = JSON.stringify(enforcePayload);
+  if (new TextEncoder().encode(requestBody).length > MAX_REQUEST_BYTES) {
+    console.error(
+      "thoth: request larger than the enforcer limit, blocked locally (tool=%s)",
+      toolName,
+    );
+    return REQUEST_TOO_LARGE;
+  }
   try {
     const resp = await fetch(`${managedApiUrl}/v1/enforce`, {
       method: "POST",
       headers,
-      body: JSON.stringify(enforcePayload),
+      body: requestBody,
       signal: AbortSignal.timeout(5000),
     });
     if (!resp.ok) {

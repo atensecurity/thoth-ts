@@ -323,6 +323,22 @@ describe("enforcer-client response mapping", () => {
         const decision = await checkEnforce(buildConfig({ failOpen: true }), "read:data", "sess_1", ["read:data"]);
         expect(decision.decision).toBe("BLOCK");
     });
+    it.each([false, true])("blocks an oversized request locally without sending it (failOpen=%s)", async (failOpen) => {
+        const fetchMock = vi.fn().mockRejectedValue(new Error("EPIPE"));
+        vi.stubGlobal("fetch", fetchMock);
+        const decision = await checkEnforce(buildConfig({ failOpen }), "read:data", "sess_1", ["read:data"], { blob: "a".repeat(5 * 1024 * 1024) });
+        expect(decision.decision).toBe("BLOCK");
+        expect(decision.reason).toContain("enforcer_request_too_large");
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+    it.each([false, true])("blocks a 413 request_too_large with failOpen=%s", async (failOpen) => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+            ok: false,
+            status: 413,
+        }));
+        const decision = await checkEnforce(buildConfig({ failOpen }), "read:data", "sess_1", ["read:data"]);
+        expect(decision.decision).toBe("BLOCK");
+    });
     it("requests a human explanation for BLOCK decisions", async () => {
         vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
             ok: true,
