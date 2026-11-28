@@ -202,6 +202,102 @@ describe("instrument()", () => {
         expect(sent.second).toEqual({ to: "shared@example.com" });
         expect(sent.loop).toEqual({ to: "loop@example.com", self: "[circular]" });
     });
+    it("turns a BigInt argument into a string without throwing", async () => {
+        const agent = new FakeAgent();
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ decision: "ALLOW" }),
+            status: 202,
+            text: () => Promise.resolve(""),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        instrument(agent, {
+            agentId: "test",
+            approvedScope: ["read:data"],
+            tenantId: "trantor",
+            apiUrl,
+            apiKey: "aten_test_key",
+        });
+        await agent.tools[0].run({ big: 12345678901234567890n });
+        const enforceCall = fetchMock.mock.calls.find((call) => String(call[0]).includes("/v1/enforce"));
+        const sent = JSON.parse(String(enforceCall[1].body)).tool_args;
+        expect(sent.big).toBe("12345678901234567890");
+        expect(agent.tools[0].calls).toHaveLength(1);
+    });
+    function deepWith(leaf, depth) {
+        let node = { leaf };
+        for (let i = 0; i < depth; i += 1)
+            node = { next: node };
+        return node;
+    }
+    describe.each([false, true])("a call whose arguments cannot be built (failOpen=%s)", (failOpen) => {
+        const okFetch = () => vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ decision: "ALLOW" }),
+            status: 202,
+            text: () => Promise.resolve(""),
+        });
+        const governed = async (enforcement) => {
+            const agent = new FakeAgent();
+            const fetchMock = okFetch();
+            vi.stubGlobal("fetch", fetchMock);
+            instrument(agent, {
+                agentId: "test",
+                approvedScope: ["read:data"],
+                tenantId: "trantor",
+                apiUrl,
+                apiKey: "aten_test_key",
+                failOpen,
+                ...(enforcement !== undefined && { enforcement }),
+            });
+            // instrument() itself posts the tool inventory and an LLM event.
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            fetchMock.mockClear();
+            return { agent, fetchMock };
+        };
+        it.each([
+            ["NaN", () => ({ amount: { values: [1, Number.NaN] } })],
+            ["Infinity", () => ({ amount: Infinity })],
+            ["-Infinity", () => ({ list: [[-Infinity]] })],
+            ["NaN at depth 100", () => deepWith(Number.NaN, 100)],
+            ["NaN at depth 10000", () => deepWith(Number.NaN, 10000)],
+            ["Infinity in a Map", () => ({ m: new Map([["a", Infinity]]) })],
+            ["NaN in a Set", () => ({ s: new Set([Number.NaN]) })],
+            ["an invalid Date", () => ({ when: new Date("nope") })],
+        ])("blocks %s and sends no request at all", async (_n, build) => {
+            const { agent, fetchMock } = await governed();
+            await expect(agent.tools[0].run(build())).rejects.toMatchObject({
+                reason: "request could not be built",
+            });
+            expect(agent.tools[0].calls).toHaveLength(0);
+            expect(fetchMock).not.toHaveBeenCalled();
+        });
+        it("raises ThothPolicyViolation for a non-finite number", async () => {
+            const { agent } = await governed();
+            await expect(agent.tools[0].run({ amount: Number.NaN })).rejects.toBeInstanceOf(ThothPolicyViolation);
+        });
+        it.each([
+            ["NaN", () => ({ amount: Number.NaN })],
+            ["NaN at depth 100", () => deepWith(Number.NaN, 100)],
+            ["an invalid Date", () => ({ when: new Date("nope") })],
+        ])("in observe mode runs the tool but sends no enforce, explain or argument request for %s", async (_n, build) => {
+            const { agent, fetchMock } = await governed(EnforcementMode.OBSERVE);
+            const errSpy = vi
+                .spyOn(console, "error")
+                .mockImplementation(() => { });
+            await agent.tools[0].run(build());
+            expect(agent.tools[0].calls).toHaveLength(1);
+            const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+            expect(urls.some((u) => u.includes("/v1/enforce"))).toBe(false);
+            expect(urls.some((u) => u.includes("/v1/explain"))).toBe(false);
+            for (const call of fetchMock.mock.calls) {
+                const body = String(call[1]?.body);
+                expect(body).not.toContain("tool_args");
+            }
+            expect(JSON.stringify(errSpy.mock.calls)).toContain("request could not be built");
+            errSpy.mockRestore();
+        });
+    });
     it("refuses arguments that explode when a shared object repeats", async () => {
         const agent = new FakeAgent();
         const fetchMock = vi.fn().mockResolvedValue({

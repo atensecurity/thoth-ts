@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import {
   awaitStepUpDecision,
   checkEnforce,
+  hasNonFiniteNumber,
   requestHumanExplanation,
 } from "../enforcer-client.js";
 import { EnforcementMode } from "../models.js";
@@ -516,6 +517,337 @@ describe("enforcer-client response mapping", () => {
       expect(decision.decision).toBe("BLOCK");
     },
   );
+
+  describe.each([false, true])(
+    "an enforcer reply that cannot be understood (failOpen=%s)",
+    (failOpen) => {
+      it.each([
+        [
+          "an unknown decision with a wrong-typed field",
+          '{"decision":"MAYBE","risk_score":"high"}',
+        ],
+        ["an HTML page", "<html><body>Welcome</body></html>"],
+        ["an empty array", "[]"],
+        ["null", "null"],
+        ["an empty body", ""],
+        ["truncated JSON", '{"decision":"ALL'],
+        ["an object without a decision", "{}"],
+      ])("blocks %s", async (_name, body) => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue(new Response(body, { status: 200 })),
+        );
+        const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const decision = await checkEnforce(
+          buildConfig({ failOpen }),
+          "read:data",
+          "sess_1",
+          ["read:data"],
+        );
+
+        expect(decision.decision).toBe("BLOCK");
+        expect(decision.reason).toBe("enforcer response not understood");
+        const logged = JSON.stringify([
+          ...errSpy.mock.calls,
+          ...warnSpy.mock.calls,
+        ]);
+        expect(logged).not.toContain("Welcome");
+        expect(logged).not.toContain("MAYBE");
+        expect(logged).not.toContain("fail-open");
+        errSpy.mockRestore();
+        warnSpy.mockRestore();
+      });
+
+      it("keeps a wrong-typed optional field on a valid BLOCK", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue(
+            new Response('{"decision":"BLOCK","risk_score":"high"}', {
+              status: 200,
+            }),
+          ),
+        );
+        const decision = await checkEnforce(
+          buildConfig({ failOpen }),
+          "read:data",
+          "sess_1",
+          ["read:data"],
+        );
+        expect(decision.decision).toBe("BLOCK");
+      });
+
+      it("names the status when a request is rejected", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue({ ok: false, status: 422 }),
+        );
+        const decision = await checkEnforce(
+          buildConfig({ failOpen }),
+          "read:data",
+          "sess_1",
+          ["read:data"],
+        );
+        expect(decision.decision).toBe("BLOCK");
+        expect(decision.reason).toBe("enforcer rejected request (status=422)");
+      });
+    },
+  );
+
+  it.each([
+    ["a network error", () => Promise.reject(new TypeError("fetch failed"))],
+    [
+      "a timeout",
+      () =>
+        Promise.reject(
+          new DOMException("The operation timed out.", "TimeoutError"),
+        ),
+    ],
+    ["a 503", () => Promise.resolve({ ok: false, status: 503 })],
+    ["a 429", () => Promise.resolve({ ok: false, status: 429 })],
+    [
+      "a body read that times out",
+      () =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.reject(
+              new DOMException("The operation timed out.", "TimeoutError"),
+            ),
+        }),
+    ],
+  ])("still allows %s when failOpen is enabled", async (_name, respond) => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(respond));
+    const decision = await checkEnforce(
+      buildConfig({ failOpen: true }),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+    expect(decision.decision).toBe("ALLOW");
+    expect(decision.reason).toContain("fail-open");
+  });
+
+  describe.each([false, true])(
+    "non-finite numbers in tool arguments (failOpen=%s)",
+    (failOpen) => {
+      it.each([
+        ["NaN at the top level", { amount: Number.NaN }],
+        ["Infinity at the top level", { amount: Infinity }],
+        ["-Infinity at the top level", { amount: -Infinity }],
+        ["NaN nested", { a: { b: { c: Number.NaN } } }],
+        ["Infinity in an array", { list: [1, 2, Infinity] }],
+        ["-Infinity in a nested array", { a: [[{ b: -Infinity }]] }],
+      ])("blocks %s without sending", async (_name, toolArgs) => {
+        const fetchMock = vi
+          .fn()
+          .mockResolvedValue(
+            new Response('{"decision":"ALLOW"}', { status: 200 }),
+          );
+        vi.stubGlobal("fetch", fetchMock);
+        const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+        const decision = await checkEnforce(
+          buildConfig({ failOpen }),
+          "read:data",
+          "sess_1",
+          ["read:data"],
+          toolArgs,
+        );
+
+        expect(decision.decision).toBe("BLOCK");
+        expect(decision.reason).toBe("request could not be built");
+        expect(fetchMock).not.toHaveBeenCalled();
+        const logged = JSON.stringify(errSpy.mock.calls);
+        expect(logged).not.toContain("Infinity");
+        expect(logged).not.toContain("NaN");
+        errSpy.mockRestore();
+      });
+
+      it("leaves finite numbers and null alone", async () => {
+        const fetchMock = vi
+          .fn()
+          .mockResolvedValue(
+            new Response('{"decision":"ALLOW"}', { status: 200 }),
+          );
+        vi.stubGlobal("fetch", fetchMock);
+        const decision = await checkEnforce(
+          buildConfig({ failOpen }),
+          "read:data",
+          "sess_1",
+          ["read:data"],
+          { a: 0, b: -1.5, c: null, d: [1, null, 2e300] },
+        );
+        expect(decision.decision).toBe("ALLOW");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+    },
+  );
+
+  describe.each([false, true])(
+    "a reply with a wrong-typed known field (failOpen=%s)",
+    (failOpen) => {
+      it.each([
+        ["risk_score as a string", '{"decision":"ALLOW","risk_score":"high"}'],
+        ["latency_ms as a string", '{"decision":"ALLOW","latency_ms":"5"}'],
+        ["reason as a number", '{"decision":"ALLOW","reason":7}'],
+        [
+          "matched_rule_ids as a string",
+          '{"decision":"ALLOW","matched_rule_ids":"r1"}',
+        ],
+        [
+          "matched_rule_ids with a number",
+          '{"decision":"ALLOW","matched_rule_ids":["r1",2]}',
+        ],
+        ["receipt as a string", '{"decision":"ALLOW","receipt":"x"}'],
+        [
+          "modified_tool_args as an array",
+          '{"decision":"MODIFY","modified_tool_args":[]}',
+        ],
+        [
+          "top_contributors as an object",
+          '{"decision":"ALLOW","top_contributors":{}}',
+        ],
+        [
+          "step_up_timeout_seconds as a string",
+          '{"decision":"STEP_UP","step_up_timeout_seconds":"30"}',
+        ],
+      ])("blocks %s", async (_name, body) => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue(new Response(body, { status: 200 })),
+        );
+        const decision = await checkEnforce(
+          buildConfig({ failOpen }),
+          "read:data",
+          "sess_1",
+          ["read:data"],
+        );
+        expect(decision.decision).toBe("BLOCK");
+        expect(decision.reason).toBe("enforcer response not understood");
+      });
+
+      it("accepts an unknown extra field and null optionals", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi
+            .fn()
+            .mockResolvedValue(
+              new Response(
+                '{"decision":"ALLOW","risk_score":0.2,"reason":null,"future_field":{"x":[1]},"matched_rule_ids":["r1"]}',
+                { status: 200 },
+              ),
+            ),
+        );
+        const decision = await checkEnforce(
+          buildConfig({ failOpen }),
+          "read:data",
+          "sess_1",
+          ["read:data"],
+        );
+        expect(decision.decision).toBe("ALLOW");
+        expect(decision.riskScore).toBe(0.2);
+        expect(decision.matchedRuleIds).toEqual(["r1"]);
+      });
+    },
+  );
+
+  it.each([false, true])(
+    "blocks NaN at depth 10000 without sending (failOpen=%s)",
+    async (failOpen) => {
+      let node: Record<string, unknown> = { leaf: Number.NaN };
+      for (let i = 0; i < 10000; i += 1) node = { next: node };
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const decision = await checkEnforce(
+        buildConfig({ failOpen }),
+        "read:data",
+        "sess_1",
+        ["read:data"],
+        node,
+      );
+      expect(decision.reason).toBe("request could not be built");
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("treats a tree larger than the walk limit as unbuildable, not as clean", () => {
+    const tree = { a: [1, 2, 3], b: { c: 4 } };
+    expect(hasNonFiniteNumber(tree)).toBe(false);
+    expect(hasNonFiniteNumber(tree, 3)).toBe(true);
+  });
+
+  it("accepts null for an optional number field but not for the decision", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          '{"decision":"ALLOW","risk_score":null,"latency_ms":null,"step_up_timeout_seconds":null}',
+          { status: 200 },
+        ),
+      ),
+    );
+    const ok = await checkEnforce(
+      buildConfig({ failOpen: false }),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+    expect(ok.decision).toBe("ALLOW");
+    expect(ok.riskScore).toBeUndefined();
+    expect(ok.latencyMs).toBeUndefined();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          '{"decision":"ALLOW","receipt":null,"terminal_receipt":null,"modified_tool_args":null,"top_contributors":null}',
+          { status: 200 },
+        ),
+      ),
+    );
+    const nullObjects = await checkEnforce(
+      buildConfig({ failOpen: false }),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+    expect(nullObjects.decision).toBe("ALLOW");
+    expect(nullObjects.receipt).toBeUndefined();
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('{"decision":null,"risk_score":0.1}', { status: 200 }),
+        ),
+    );
+    const bad = await checkEnforce(
+      buildConfig({ failOpen: true }),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+    expect(bad.decision).toBe("BLOCK");
+    expect(bad.reason).toBe("enforcer response not understood");
+  });
+
+  it("names the status on a 5xx with fail-open off", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 503 }),
+    );
+    const decision = await checkEnforce(
+      buildConfig({ failOpen: false }),
+      "read:data",
+      "sess_1",
+      ["read:data"],
+    );
+    expect(decision.decision).toBe("BLOCK");
+    expect(decision.reason).toBe("enforcer unavailable (status=503)");
+  });
 
   it("requests a human explanation for BLOCK decisions", async () => {
     vi.stubGlobal(

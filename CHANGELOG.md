@@ -14,6 +14,14 @@ All notable changes to `@atensec/thoth` are documented in this file.
   connection, which fail-open read as an allow. Use smaller tool arguments or ask a reviewer for a
   held action. This check is in the SDK and needs no enforcer change.
 
+### Fixed
+
+- With fail-open on, an enforcer reply that could not be understood no longer allows the call; it is blocked. A reply with a field of the wrong type is treated the same way. A tool call whose arguments hold NaN, Infinity or an invalid date is blocked before anything is sent, because they would otherwise reach the enforcer as a missing value. The reason for a rejected request now names the status.
+
+### Known limits
+
+- In observe mode a request that cannot be built (a non-finite number, an unserialisable value, an invalid date) is not sent and leaves no record: it appears nowhere in the would-have-blocked summary.
+
 ### Added
 
 - Local scan detects labelled medical record numbers and labelled dates of birth in tool
@@ -25,7 +33,7 @@ All notable changes to `@atensec/thoth` are documented in this file.
   pattern detectors: they have false positives (for example a UUID right after `patient id`) and
   false negatives (for example `user_dob`, two-digit years, or a year after 2026), and they make
   no compliance or PHI claim. The detector set's `ruleset_hash` is `9e7e25ec9d1f280b12f6006726cfc9efdaf5a0dc24585b08eb513e140ff3ae46`: workspace
-  owners add it to `accepted_scanner_ruleset_hashes` before relying on a client that sends it. The email detector's quantifiers are now bounded (local part up to 64 characters, domain up to 253), so scanning long text is linear; an address whose local part is one run of more than 64 letters or digits is no longer matched. The scan runs in your process; the server side needs the matching Thoth platform release. There `mrn` and `dob` are findings only (rule conditions, evidence): the server does not redact them from what a tool receives unless redaction for them is switched on, which is an explicit workspace choice. An enforcer from before that release does not accept these two categories in a report.
+  owners add it to `accepted_scanner_ruleset_hashes` before relying on a client that sends it. The email detector's quantifiers are now bounded (local part up to 64 characters, domain up to 253), so scanning long text is linear; an address whose local part is one run of more than 64 letters or digits is no longer matched. The scan runs in your process; the server side needs the matching Thoth platform release. There `mrn` and `dob` are findings only (rule conditions, evidence): the server does not redact them from what a tool receives unless redaction for them is switched on, which is an explicit workspace choice. An enforcer built between 8 and 24 November rejects a report containing `mrn` or `dob` with a 422, because it only knows the original five categories, and the SDK blocks that call even with fail-open on. The enforcer in production today ignores the new `client_findings` field.
 
 - Opt-in withholding of values at the source. Set `dataHandlingToolArguments`
   (`hash`, `redact` or `drop`) and `dataHandlingPrompts` (`hash` or `drop`) on
@@ -38,7 +46,7 @@ All notable changes to `@atensec/thoth` are documented in this file.
   applied to a call whose arguments were withheld: if the server returns a rewrite
   anyway, the call fails closed (the tool does not run, `ThothPolicyViolation`)
   because that is a server or contract problem. Nothing changes when unset; an
-  invalid value throws when the client is built. No new runtime dependencies.
+  invalid value throws when the client is built. No new runtime dependencies. Holding a call on `args_withheld` needs the matching Thoth platform change: against an enforcer without it, hashed or redacted argument values are evaluated as if they were real, so rules on argument values would not hold and those calls could be allowed.
 - Local scanning when tool arguments are withheld. With
   `dataHandlingToolArguments` set to `hash`, `redact` or `drop`, the SDK scans the
   raw arguments (and the destination host in the request metadata) in your process

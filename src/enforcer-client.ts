@@ -24,6 +24,18 @@ const REQUEST_TOO_LARGE: EnforcementDecision = {
   reason:
     "enforcer_request_too_large: the request is larger than the enforcer accepts, so the action is not allowed; use smaller tool arguments or ask a reviewer for a held action",
 };
+// A 2xx whose body cannot be read as a decision. This is not an outage: fail-open covers
+// enforcer infrastructure failures only, so it blocks in both modes.
+const NOT_UNDERSTOOD: EnforcementDecision = {
+  decision: DecisionType.BLOCK,
+  reason: "enforcer response not understood",
+};
+// JSON.stringify writes NaN and Infinity as null, which the enforcer reads as a missing
+// argument, so a rule can be evaded. Such a request is never built or sent.
+const REQUEST_NOT_BUILT: EnforcementDecision = {
+  decision: DecisionType.BLOCK,
+  reason: "request could not be built",
+};
 const FAIL_OPEN_FALLBACK: EnforcementDecision = {
   decision: DecisionType.ALLOW,
   reason: "enforcer unavailable (fail-open)",
@@ -111,6 +123,41 @@ function defaultIdentityBinding(
   return binding;
 }
 
+const MAX_WALK_NODES = 5_000_000;
+
+/**
+ * True when NaN, Infinity or -Infinity appears anywhere in the tree, or when the tree is
+ * too large to check (a limit that stops looking must block, never skip). Iterative and
+ * cycle-safe, so depth does not matter.
+ */
+export function hasNonFiniteNumber(
+  root: unknown,
+  limit: number = MAX_WALK_NODES,
+): boolean {
+  const seen = new Set<object>();
+  const stack: unknown[] = [root];
+  let visited = 0;
+  while (stack.length > 0) {
+    const item = stack.pop();
+    visited += 1;
+    if (visited > limit) return true;
+    if (typeof item === "number") {
+      if (!Number.isFinite(item)) return true;
+    } else if (item !== null && typeof item === "object") {
+      if (seen.has(item)) continue;
+      seen.add(item);
+      if (item instanceof Map) {
+        for (const [k, v] of item) stack.push(k, v);
+      } else if (item instanceof Set) {
+        for (const v of item) stack.push(v);
+      } else {
+        for (const child of Object.values(item as object)) stack.push(child);
+      }
+    }
+  }
+  return false;
+}
+
 function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
@@ -124,6 +171,13 @@ export async function checkEnforce(
   enforcementTraceId?: string,
   actionAttestationId?: string,
 ): Promise<EnforcementDecision> {
+  if (hasNonFiniteNumber(toolArgs)) {
+    console.error(
+      "thoth: tool arguments hold a non-finite number, blocked locally (tool=%s)",
+      toolName,
+    );
+    return REQUEST_NOT_BUILT;
+  }
   const managedApiUrl = config.apiUrl.replace(/\/$/, "");
   const resolvedActionAttestationId =
     actionAttestationId ?? config.actionAttestationId;
@@ -208,9 +262,37 @@ export async function checkEnforce(
         resp.status,
         toolName,
       );
-      return FALLBACK;
+      return {
+        decision: DecisionType.BLOCK,
+        reason: isRetryableStatus(resp.status)
+          ? `enforcer unavailable (status=${resp.status})`
+          : `enforcer rejected request (status=${resp.status})`,
+      };
     }
-    return toEnforcementDecision(await resp.json());
+    let payload: unknown;
+    try {
+      payload = await resp.json();
+    } catch (err) {
+      // Only a body that is not JSON is a bad reply. A body read that fails or
+      // times out is a transport failure and takes the fail-open path below.
+      if (!(err instanceof SyntaxError)) throw err;
+      console.error(
+        "thoth: enforcer response not understood, BLOCK (status=%s tool=%s error=%s)",
+        resp.status,
+        toolName,
+        err.name,
+      );
+      return NOT_UNDERSTOOD;
+    }
+    const decision = toEnforcementDecision(payload);
+    if (decision === NOT_UNDERSTOOD) {
+      console.error(
+        "thoth: enforcer response not understood, BLOCK (status=%s tool=%s)",
+        resp.status,
+        toolName,
+      );
+    }
+    return decision;
   } catch {
     if (config.failOpen) {
       console.warn(
@@ -362,13 +444,68 @@ function readStringArray(value: unknown): string[] | undefined {
 }
 
 function toEnforcementDecision(payload: unknown): EnforcementDecision {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return NOT_UNDERSTOOD;
+  }
   const record = readRecord(payload);
+  // Known fields are read strictly: a present field of the wrong type is a contract
+  // mismatch and the reply is not understood. null counts as absent. Unknown fields
+  // are ignored, so a newer enforcer that adds fields is never blocked.
+  let malformed = false;
+  const bad = (): undefined => {
+    malformed = true;
+    return undefined;
+  };
+  const readText = (v: unknown): string | undefined =>
+    v === undefined || v === null
+      ? undefined
+      : typeof v === "string"
+        ? v
+        : bad();
+  const readNumber = (v: unknown): number | undefined =>
+    v === undefined || v === null
+      ? undefined
+      : typeof v === "number" && Number.isFinite(v)
+        ? v
+        : bad();
+  const readStringArray = (v: unknown): string[] | undefined => {
+    if (v === undefined || v === null) return undefined;
+    if (!Array.isArray(v) || v.some((item) => typeof item !== "string")) {
+      return bad();
+    }
+    const out = (v as string[])
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    return out;
+  };
+  const readObject = (v: unknown): Record<string, unknown> | undefined =>
+    v === undefined || v === null
+      ? undefined
+      : typeof v === "object" && !Array.isArray(v)
+        ? (v as Record<string, unknown>)
+        : bad();
+  const readObjectArray = (
+    v: unknown,
+  ): Record<string, unknown>[] | undefined => {
+    if (v === undefined || v === null) return undefined;
+    if (
+      !Array.isArray(v) ||
+      v.some((x) => x === null || typeof x !== "object" || Array.isArray(x))
+    ) {
+      return bad();
+    }
+    return v as Record<string, unknown>[];
+  };
   let decision = parseDecision(
     record.authorization_decision ??
       record.authorizationDecision ??
       record.decision,
   );
-  if (!decision) return FALLBACK;
+  if (!decision) return NOT_UNDERSTOOD;
   // A deferred action is held for review: the enforcer sends decision STEP_UP
   // with a hold token while authorization_decision stays DEFER. Wait on the
   // hold, as the Python and Go SDKs do, instead of failing as an unanswered
@@ -380,7 +517,13 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
   ) {
     decision = DecisionType.STEP_UP;
   }
-  return {
+  const readFeatures = (v: unknown): Record<string, number> | undefined => {
+    const obj = readObject(v);
+    if (obj === undefined) return undefined;
+    if (Object.values(obj).some((x) => typeof x !== "number")) return bad();
+    return obj as Record<string, number>;
+  };
+  const result: EnforcementDecision = {
     decision,
     authorizationDecision: readText(
       record.authorization_decision ?? record.authorizationDecision,
@@ -415,11 +558,8 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
       record.policy_references ?? record.policyReferences,
     ),
     modelSignals: readStringArray(record.model_signals ?? record.modelSignals),
-    receipt:
-      record.receipt && typeof record.receipt === "object"
-        ? (record.receipt as Record<string, unknown>)
-        : undefined,
-    terminalReceipt: readRecordOrUndefined(
+    receipt: readObject(record.receipt),
+    terminalReceipt: readObject(
       record.terminal_receipt ?? record.terminalReceipt,
     ),
     profileId: readText(record.profile_id ?? record.profileId),
@@ -427,15 +567,12 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
     tenantDeclarationsStatus: readText(
       record.tenant_declarations_status ?? record.tenantDeclarationsStatus,
     ),
-    riskClassification: readRecordOrUndefined(
+    riskClassification: readObject(
       record.risk_classification ?? record.riskClassification,
     ),
-    modifiedToolArgs:
-      record.modified_tool_args && typeof record.modified_tool_args === "object"
-        ? (record.modified_tool_args as Record<string, unknown>)
-        : record.modifiedToolArgs && typeof record.modifiedToolArgs === "object"
-          ? (record.modifiedToolArgs as Record<string, unknown>)
-          : undefined,
+    modifiedToolArgs: readObject(
+      record.modified_tool_args ?? record.modifiedToolArgs,
+    ),
     modificationReason: readText(
       record.modification_reason ?? record.modificationReason,
     ),
@@ -455,34 +592,20 @@ function toEnforcementDecision(payload: unknown): EnforcementDecision {
     actionAttestationId: readText(
       record.action_attestation_id ?? record.actionAttestationId,
     ),
-    fastmlFeatures:
-      record.fastml_features &&
-      typeof record.fastml_features === "object" &&
-      !Array.isArray(record.fastml_features)
-        ? (record.fastml_features as Record<string, number>)
-        : record.fastmlFeatures &&
-            typeof record.fastmlFeatures === "object" &&
-            !Array.isArray(record.fastmlFeatures)
-          ? (record.fastmlFeatures as Record<string, number>)
-          : undefined,
-    scoreComponents:
-      record.score_components && typeof record.score_components === "object"
-        ? (record.score_components as Record<string, unknown>)
-        : record.scoreComponents && typeof record.scoreComponents === "object"
-          ? (record.scoreComponents as Record<string, unknown>)
-          : undefined,
-    topContributors: Array.isArray(record.top_contributors)
-      ? (record.top_contributors as Record<string, unknown>[])
-      : Array.isArray(record.topContributors)
-        ? (record.topContributors as Record<string, unknown>[])
-        : undefined,
-    decisionEvidence:
-      record.decision_evidence && typeof record.decision_evidence === "object"
-        ? (record.decision_evidence as Record<string, unknown>)
-        : record.decisionEvidence && typeof record.decisionEvidence === "object"
-          ? (record.decisionEvidence as Record<string, unknown>)
-          : undefined,
+    fastmlFeatures: readFeatures(
+      record.fastml_features ?? record.fastmlFeatures,
+    ),
+    scoreComponents: readObject(
+      record.score_components ?? record.scoreComponents,
+    ),
+    topContributors: readObjectArray(
+      record.top_contributors ?? record.topContributors,
+    ),
+    decisionEvidence: readObject(
+      record.decision_evidence ?? record.decisionEvidence,
+    ),
   };
+  return malformed ? NOT_UNDERSTOOD : result;
 }
 
 async function sleep(ms: number): Promise<void> {

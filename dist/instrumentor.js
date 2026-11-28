@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { ThothPolicyViolation, EnforcementMode, DecisionType, SourceType, EventType, } from "./models.js";
-import { awaitStepUpDecision, checkEnforce, requestHumanExplanation, } from "./enforcer-client.js";
+import { awaitStepUpDecision, checkEnforce, hasNonFiniteNumber, requestHumanExplanation, } from "./enforcer-client.js";
 import { emitBehavioralEvent } from "./emitter.js";
 import { argumentsWithheld, dataHandlingFor, localScanEnabled, } from "./data-handling.js";
 // A lower layer (an MCP client under a framework's tool) may skip checking the
@@ -156,6 +156,16 @@ function isAsyncGeneratorFunction(fn) {
     return (typeof fn === "function" &&
         fn.constructor?.name === "AsyncGeneratorFunction");
 }
+/**
+ * Arguments that cannot be sent faithfully: NaN or Infinity (JSON writes them as null, which
+ * the enforcer reads as a missing value) or a value that cannot be rendered, such as an
+ * invalid Date. The call is blocked, and nothing is sent about it.
+ */
+class UnbuildableArgs extends Error {
+    constructor() {
+        super("request could not be built");
+    }
+}
 const MAX_SERIALIZE_DEPTH = 64;
 const MAX_SERIALIZE_NODES = 100000;
 // Copies a value into plain JSON types for the enforcer. The tool runs on the
@@ -174,6 +184,9 @@ function toSerializable(value, seen, depth = 0, budget = { left: MAX_SERIALIZE_N
     }
     if (value == null)
         return value;
+    if (typeof value === "number" && !Number.isFinite(value)) {
+        throw new UnbuildableArgs();
+    }
     if (typeof value === "string" ||
         typeof value === "number" ||
         typeof value === "boolean") {
@@ -185,13 +198,20 @@ function toSerializable(value, seen, depth = 0, budget = { left: MAX_SERIALIZE_N
         return value.toString();
     if (typeof value === "function")
         return "[function]";
-    if (value instanceof Date)
+    if (value instanceof Date) {
+        if (Number.isNaN(value.getTime()))
+            throw new UnbuildableArgs();
         return value.toISOString();
+    }
     if (typeof value !== "object")
         return String(value);
     if (seen.has(value))
         return "[circular]";
     if (depth > MAX_SERIALIZE_DEPTH) {
+        // The subtree is sent as one string, so look inside it first: JSON would
+        // turn a non-finite number in it into null.
+        if (hasNonFiniteNumber(value))
+            throw new UnbuildableArgs();
         try {
             return JSON.stringify(value) ?? String(value);
         }
@@ -239,6 +259,29 @@ function toolArgsFromCall(args) {
         return toSerializable(args[0], seen);
     }
     return { args: toSerializable(args, seen) };
+}
+/** True when the call's arguments cannot be built into a request. */
+function argsUnbuildable(args) {
+    try {
+        toolArgsFromCall(args);
+        return false;
+    }
+    catch (err) {
+        if (err instanceof UnbuildableArgs)
+            return true;
+        throw err;
+    }
+}
+/** The call's arguments for telemetry, or undefined when they cannot be built. */
+function safeToolArgs(args) {
+    try {
+        return toolArgsFromCall(args);
+    }
+    catch (err) {
+        if (err instanceof UnbuildableArgs)
+            return undefined;
+        throw err;
+    }
 }
 function pendingSessionToolCalls(toolCalls, toolName) {
     if (toolCalls.length === 0 || toolCalls[toolCalls.length - 1] !== toolName) {
@@ -412,7 +455,7 @@ function createPolicyViolation(toolName, decision, fallbackReason, explanation) 
     });
 }
 function baseToolEventMetadata(toolName, args, cfg, enforcementTraceId, actionAttestationId) {
-    const toolArgs = toolArgsFromCall(args);
+    const toolArgs = safeToolArgs(args);
     return {
         sdk_language: "typescript",
         environment: cfg.environment,
@@ -431,9 +474,9 @@ function baseToolEventMetadata(toolName, args, cfg, enforcementTraceId, actionAt
             : {}),
         tool_call: {
             name: toolName,
-            arguments: toolArgs,
+            ...(toolArgs !== undefined && { arguments: toolArgs }),
         },
-        tool_args: toolArgs,
+        ...(toolArgs !== undefined && { tool_args: toolArgs }),
     };
 }
 function policyViolationMetadata(violation) {
@@ -490,8 +533,9 @@ function policyViolationMetadata(violation) {
     }
     return metadata;
 }
-function wrapAsAsyncGenerator(toolName, fn, toolCalls, enforce, emit, baseMetadataForArgs, resolveActionAttestationIdForCall) {
+function wrapAsAsyncGenerator(toolName, fn, toolCalls, enforce, emit, baseMetadataForArgs, resolveActionAttestationIdForCall, guard) {
     return async function* (...args) {
+        guard(args);
         const actionAttestationId = resolveActionAttestationIdForCall();
         const baseMetadata = baseMetadataForArgs(args, actionAttestationId);
         const start = Date.now();
@@ -770,8 +814,26 @@ export function openSession(config, options = {}) {
     };
     void emitBehavioralEvent(llmInvocationEvent, cfg.apiUrl, cfg.apiKey ?? "").catch(() => undefined);
     const wrap = (toolName, originalRun) => {
+        // Runs first, before any request about the call (telemetry, explain, enforce):
+        // arguments that cannot be built block the call in enforce mode and send nothing.
+        // Observe mode still runs the tool, and sends nothing that carries the arguments.
+        const guard = (args) => {
+            if (cfg.enforcement === EnforcementMode.OBSERVE)
+                return;
+            if (argsUnbuildable(args)) {
+                console.error("thoth: tool arguments cannot be built into a request, call blocked (tool=%s)", toolName);
+                throw createPolicyViolation(toolName, {
+                    decision: DecisionType.BLOCK,
+                    reason: "request could not be built",
+                }, "request could not be built");
+            }
+        };
         const enforce = async (args, actionAttestationId) => {
             if (cfg.enforcement === EnforcementMode.OBSERVE) {
+                if (argsUnbuildable(args)) {
+                    console.error("thoth: observe mode, request could not be built, nothing sent (tool=%s)", toolName);
+                    return { effectiveArgs: args };
+                }
                 // Observe still asks the enforcer: it records what it would have held
                 // or blocked, which is what an operator reads to decide whether an
                 // agent is ready to enforce. The answer is only logged; the call always
@@ -951,10 +1013,11 @@ export function openSession(config, options = {}) {
         };
         let wrapped;
         if (isAsyncGeneratorFunction(originalRun)) {
-            wrapped = wrapAsAsyncGenerator(toolName, originalRun, toolCalls, enforce, emit, (args, actionAttestationId) => baseToolEventMetadata(toolName, args, cfg, enforcementTraceId, actionAttestationId), () => resolveActionAttestationId(cfg));
+            wrapped = wrapAsAsyncGenerator(toolName, originalRun, toolCalls, enforce, emit, (args, actionAttestationId) => baseToolEventMetadata(toolName, args, cfg, enforcementTraceId, actionAttestationId), () => resolveActionAttestationId(cfg), guard);
         }
         else {
             const wrappedAsync = async (...args) => {
+                guard(args);
                 const start = Date.now();
                 const actionAttestationId = resolveActionAttestationId(cfg);
                 const baseMetadata = baseToolEventMetadata(toolName, args, cfg, enforcementTraceId, actionAttestationId);
@@ -991,7 +1054,7 @@ export function openSession(config, options = {}) {
                 }
                 const checked = {
                     name: toolName,
-                    args: canonical(toolArgsFromCall(outcome.effectiveArgs) ?? {}),
+                    args: canonical(safeToolArgs(outcome.effectiveArgs) ?? {}),
                     claimed: false,
                 };
                 const result = await governedCall.run(checked, () => originalRun(...outcome.effectiveArgs));
